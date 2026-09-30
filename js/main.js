@@ -15,6 +15,7 @@ import { createConductionSystem } from './conduction.js';
 import { createInteraction } from './interaction.js';
 import { createLabels } from './labels.js';
 import { createHeartSound } from './audio.js';
+import { createIntro } from './intro.js';
 import {
   createControlsPanel,
   createPerformanceStatus,
@@ -101,6 +102,7 @@ async function start(renderer) {
   const conduction = createConductionSystem({ data: heart.data.conduction, field: heart.field, shared });
   scene.add(bloodFlow.object, coronaryFlow.object, conduction.group);
   const sound = createHeartSound();
+  const intro = createIntro({ heart, scene });
 
   // --- Settings -----------------------------------------------------------------
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -227,13 +229,21 @@ async function start(renderer) {
       msaa: profile.msaa,
       detailModel: profile.detailModel,
     };
+    effects.materials = profile.materials;
     post.bloom.enabled = effects.bloom;
     post.setMsaa(effects.msaa);
+    heart.setMaterialQuality(profile.materials);
+    lighting.area.visible = profile.areaLight;
     shared.uMicroDetail.value = effects.microDetail;
     lighting.setShadows(effects.shadows, profile.shadowMapSize);
     bloodFlow.setCount(profile.flowParticles);
     coronaryFlow.setCount(profile.coronaryParticles);
     conduction.setPurkinje(profile.purkinje);
+    if (effects.detailModel) {
+      heart.loadDetail().then((ok) => ok && effects.detailModel && heart.useDetail(true));
+    } else {
+      heart.useDetail(false);
+    }
     onResize();
     status.setQuality(profile.name, profile.adaptive);
     if (!keepGovernor) governor.restart();
@@ -250,6 +260,11 @@ async function start(renderer) {
         case 'microDetail':
           effects.microDetail *= 0.5;
           shared.uMicroDetail.value = effects.microDetail;
+          break;
+        case 'materials':
+          effects.materials = effects.materials === 'full' ? 'standard' : 'lite';
+          heart.setMaterialQuality(effects.materials);
+          lighting.area.visible = false;
           break;
         case 'resolution': {
           const current = Math.min(window.devicePixelRatio, maxPixelRatio);
@@ -269,6 +284,10 @@ async function start(renderer) {
         case 'msaa':
           effects.msaa = 0;
           post.setMsaa(0);
+          break;
+        case 'detailModel':
+          effects.detailModel = false;
+          heart.useDetail(false);
           break;
       }
       console.info(`[heart] ${fps.toFixed(1)} fps -> reduced ${step} (pixel ratio ${Math.min(window.devicePixelRatio, maxPixelRatio).toFixed(2)})`);
@@ -361,6 +380,7 @@ async function start(renderer) {
     coronaryFlow.update(delta, cycle);
     conduction.update(delta, cycle);
     sound.update(heartbeat);
+    intro.update(delta);
     interaction.update();
     labels.update(delta, cycle, view);
     vitals.update(delta, cycle);
@@ -371,6 +391,7 @@ async function start(renderer) {
   frame();
   canvas.classList.add('is-ready');
   loader.done();
+  intro.start();
 }
 
 /**
