@@ -109,12 +109,18 @@ export function mergeMeshes(meshes) {
 export function clipAxis(mesh, axis, keep, value) {
   const a = { x: 0, y: 1, z: 2 }[axis];
   const sign = keep === '>' ? 1 : -1;
-  const n = vertexCount(mesh);
-  const positions = Array.from(mesh.positions);
-  const distance = (i) => sign * (positions[i * 3 + a] - value);
-  const d = new Float64Array(n);
-  for (let i = 0; i < n; i++) d[i] = distance(i);
+  const d = new Float64Array(vertexCount(mesh));
+  for (let i = 0; i < d.length; i++) d[i] = sign * (mesh.positions[i * 3 + a] - value);
+  return clipByDistance(mesh, d);
+}
 
+/**
+ * Keeps the part of the mesh where the per-vertex signed distance `d` is >= 0.
+ * Triangles that cross the zero level are split on their edges (linear
+ * interpolation), so a plane cut stays clean and flat.
+ */
+export function clipByDistance(mesh, d) {
+  const positions = Array.from(mesh.positions);
   const edgeCache = new Map();
   function cutPoint(i, j) {
     const key = i < j ? `${i}_${j}` : `${j}_${i}`;
@@ -150,7 +156,7 @@ export function clipAxis(mesh, axis, keep, value) {
       indices.push(pq, q, r, pq, r, pr);
     }
   }
-  if (Object.keys(mesh.attributes).length) throw new Error('clipAxis: attributes are not supported');
+  if (Object.keys(mesh.attributes).length) throw new Error('clipByDistance: attributes are not supported');
   return compact(createMesh(positions, indices));
 }
 

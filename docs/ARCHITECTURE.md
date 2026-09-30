@@ -71,6 +71,16 @@ de npm.
 2. recorta os vasos longos com planos (corte limpo, triângulos divididos na
    interseção), solda vértices e aplica suavização de Taubin (remove o
    escalonamento da segmentação sem encolher a malha);
+   segmentos de vaso que no BodyParts3D são tubos fechados sobrepostos (a
+   tampa de um fica dentro do outro, com degrau de calibre e desalinhamento de
+   até ~9 mm) são unidos (`lib/junctions.mjs`): aorta ascendente → arco →
+   descendente e braquiocefálica direita → cava superior. Seções transversais
+   medem onde cada peça deixa de ser um tubo completo; cada uma é cortada ali
+   por um plano perpendicular ao seu próprio eixo; centro e calibre são
+   ajustados suavemente (1–2 raios); e o intervalo é preenchido por um tubo
+   interpolado (Hermite, tangente às duas peças, em curva quando os eixos
+   diferem), dividido ao meio entre as duas peças e suavizado localmente, sem
+   anel nem degrau;
 3. converte para o referencial do app: centímetros, +Y superior, +Z anterior,
    +X esquerda do paciente, origem no centro das 4 cavidades;
 4. **segmenta** a malha "Wall of ventricle" em parede do VE, parede do VD e

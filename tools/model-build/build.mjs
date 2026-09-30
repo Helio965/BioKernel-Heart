@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { STRUCTURES } from '../../js/anatomy.js';
 import { createCardiacField } from '../../js/cardiacField.js';
 import { ensureArchive, loadPieces, orientOutwards } from './lib/source.mjs';
+import { fuseJunction } from './lib/junctions.mjs';
 import {
   createMesh,
   vertexCount,
@@ -67,6 +68,23 @@ const smoothstep = (a, b, x) => {
 const archive = ensureArchive(path.join(here, '.cache'), process.env.BP3D_ARCHIVE);
 const pieces = loadPieces(archive, STRUCTURES);
 log(`loaded ${pieces.size} BodyParts3D files`);
+
+// Vessel segments that are separate closed pieces in BodyParts3D: join them so
+// each vessel is one continuous surface (no ring or step where they meet).
+const JUNCTIONS = [
+  ['FJ3413', 'FJ3411'], // ascending aorta -> arch
+  ['FJ3411', 'FJ1931'], // arch -> descending thoracic aorta
+  ['FJ3583', 'FJ3645'], // right brachiocephalic vein -> superior vena cava
+];
+for (const [upstream, downstream] of JUNCTIONS) {
+  const a = pieces.get(upstream);
+  const b = pieces.get(downstream);
+  const fused = fuseJunction(a.mesh, b.mesh);
+  a.mesh = fused.a;
+  b.mesh = fused.b;
+  const { offset, radiusA, radiusB, gap } = fused.info;
+  log(`joined ${a.key} -> ${b.key}: rims ${radiusA.toFixed(1)} / ${radiusB.toFixed(1)} mm, offset ${offset.toFixed(1)} mm, bridge ${gap.toFixed(1)} mm`);
+}
 
 // ---------------------------------------------------------------------------
 // 3. App frame: centimetres, Y up (BodyParts3D z), +Z anterior (-y), centred

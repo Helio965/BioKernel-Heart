@@ -75,6 +75,10 @@ Todas feitas pelo pipeline `tools/model-build/build.mjs` (reproduzível):
   ramos do arco, artérias pulmonares, veias braquiocefálicas);
 - soldagem de vértices e suavização de Taubin; subdivisão de Loop no nível de
   detalhe;
+- junção de segmentos de vaso que no BodyParts3D são peças fechadas
+  sobrepostas (aorta ascendente → arco → descendente; veia braquiocefálica
+  direita → veia cava superior): remoção das tampas, ajuste suave de centro e
+  calibre e um trecho de tubo interpolado entre as bordas;
 - segmentação de "Wall of ventricle" em parede do VE, parede do VD e septo
   interventricular, e das paredes atriais em átrios e septo interatrial (pela
   proximidade das cavidades);
