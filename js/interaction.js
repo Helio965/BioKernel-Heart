@@ -8,9 +8,10 @@ import * as THREE from 'three';
  *   double click -> the camera flies to that point (orbit target moves there)
  *
  * The rays are cast against picking proxies that share the blend-shape weights
- * of the visible meshes, so they follow the beating heart. Surfaces that the
- * reveal has made (almost) transparent are skipped: the ray goes through them
- * to what the user actually sees.
+ * of the visible meshes, so they follow the beating heart (accelerated by the
+ * BVH picker in js/picking.js). Surfaces that the reveal has made (almost)
+ * transparent are skipped: the ray goes through them to what the user
+ * actually sees.
  */
 
 const { smoothstep, lerp } = THREE.MathUtils;
@@ -36,7 +37,43 @@ export function surfaceAlpha(point, structure, shared) {
   return alpha;
 }
 
-export function createInteraction({ canvas, camera, heart, conduction, shared, onHover, onSelect, onFocusPoint }) {
+const triangle = new THREE.Triangle();
+const va = new THREE.Vector3();
+const vb = new THREE.Vector3();
+const vc = new THREE.Vector3();
+const bary = new THREE.Vector3();
+
+/** Fat weight of the epicardium at a hit point (from the tissue data). */
+function epicardialFat(hit) {
+  const attribute = hit.object.geometry.getAttribute('_tissue');
+  if (!attribute || !hit.face) return 0;
+  const { a, b, c } = hit.face;
+  hit.object.getVertexPosition(a, va).applyMatrix4(hit.object.matrixWorld);
+  hit.object.getVertexPosition(b, vb).applyMatrix4(hit.object.matrixWorld);
+  hit.object.getVertexPosition(c, vc).applyMatrix4(hit.object.matrixWorld);
+  triangle.set(va, vb, vc);
+  if (!triangle.getBarycoord(hit.point, bary)) return 0;
+  return attribute.getY(a) * bary.x + attribute.getY(b) * bary.y + attribute.getY(c) * bary.z;
+}
+
+/**
+ * First intersection the user actually sees: surfaces that the reveal has made
+ * (almost) transparent are skipped, and the epicardium, a thin film, only
+ * counts where it carries fat.
+ */
+export function firstVisibleHit(picker, raycaster, objects, shared) {
+  for (const hit of picker.intersect(raycaster, objects)) {
+    const structure = hit.object.userData.structure;
+    if (structure) {
+      if (surfaceAlpha(hit.point, structure, shared) < 0.35) continue;
+      if (hit.object.userData.key === 'epicardium' && epicardialFat(hit) < 0.45) continue;
+    }
+    return hit;
+  }
+  return null;
+}
+
+export function createInteraction({ canvas, camera, heart, conduction, shared, picker, onHover, onSelect, onFocusPoint }) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let pointerInside = false;
@@ -44,11 +81,6 @@ export function createInteraction({ canvas, camera, heart, conduction, shared, o
   let lastPick = 0;
   let hovered = null;
   let down = null;
-  const triangle = new THREE.Triangle();
-  const va = new THREE.Vector3();
-  const vb = new THREE.Vector3();
-  const vc = new THREE.Vector3();
-  const tissue = new THREE.Vector4();
 
   function setPointer(event) {
     const rect = canvas.getBoundingClientRect();
@@ -87,39 +119,10 @@ export function createInteraction({ canvas, camera, heart, conduction, shared, o
     if (hit) onFocusPoint?.(hit.point, hit.key);
   });
 
-  /** Fat weight of the epicardium at the hit point (from the tissue data). */
-  function epicardialFat(hit) {
-    const geometry = hit.object.geometry;
-    const attribute = geometry.getAttribute('_tissue');
-    if (!attribute || !hit.face) return 0;
-    const { a, b, c } = hit.face;
-    hit.object.getVertexPosition(a, va).applyMatrix4(hit.object.matrixWorld);
-    hit.object.getVertexPosition(b, vb).applyMatrix4(hit.object.matrixWorld);
-    hit.object.getVertexPosition(c, vc).applyMatrix4(hit.object.matrixWorld);
-    triangle.set(va, vb, vc);
-    const bary = triangle.getBarycoord(hit.point, new THREE.Vector3());
-    if (!bary) return 0;
-    const fa = attribute.getY(a);
-    const fb = attribute.getY(b);
-    const fc = attribute.getY(c);
-    tissue.set(0, fa * bary.x + fb * bary.y + fc * bary.z, 0, 0);
-    return tissue.y;
-  }
-
   function pick() {
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects([...heart.pickables(), ...conduction.pickables()], false);
-    for (const hit of hits) {
-      const key = hit.object.userData.key;
-      const structure = hit.object.userData.structure;
-      if (structure) {
-        if (surfaceAlpha(hit.point, structure, shared) < 0.35) continue;
-        // The epicardium is a thin film: it is picked only where there is fat.
-        if (key === 'epicardium' && epicardialFat(hit) < 0.45) continue;
-      }
-      return { key, point: hit.point.clone() };
-    }
-    return null;
+    const hit = firstVisibleHit(picker, raycaster, [...heart.pickables(), ...conduction.pickables()], shared);
+    return hit ? { key: hit.object.userData.key, point: hit.point.clone() } : null;
   }
 
   return {

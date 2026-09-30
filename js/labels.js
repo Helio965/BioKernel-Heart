@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { STRUCTURES } from './anatomy.js';
+import { firstVisibleHit } from './interaction.js';
 
 /**
  * Labels anchored to the 3D anatomy.
@@ -14,12 +15,19 @@ import { STRUCTURES } from './anatomy.js';
  *     priority and zoom (more detail the closer the camera), only for visible
  *     layers, only when the anchor faces the camera (or, for internal
  *     structures, once the reveal has opened the heart);
+ *   - automatic labels are shown only when the structure is really in sight: a
+ *     ray from the camera to the anchor must not meet another visible surface
+ *     first (rays cast within a small time budget per frame, results cached
+ *     for a short time);
  *   - labels whose boxes would overlap are dropped (greedy decluttering).
  */
 
 const MAX_AUTO = 11;
+const OCCLUSION_BUDGET = 1.5; // ms of ray casting per frame (at least one ray)
+const OCCLUSION_MAX_AGE = 400; // ms
+const OCCLUSION_TOLERANCE = 0.6; // cm: the anchor sits on the structure's own surface
 
-export function createLabels({ container, camera, heart, conduction, onPick }) {
+export function createLabels({ container, camera, heart, conduction, shared, picker, onPick }) {
   const anchors = heart.data.anchors;
   const items = new Map();
   let enabled = true;
@@ -50,12 +58,25 @@ export function createLabels({ container, camera, heart, conduction, onPick }) {
       visible: false,
       width: 24 + shortName(info.name).length * 6.3,
       left: false,
+      occluded: true,
+      checkedAt: -Infinity,
     });
   }
 
   const dv = [0, 0, 0];
   const da = [0, 0, 0];
   const toCamera = new THREE.Vector3();
+  const raycaster = new THREE.Raycaster();
+  const direction = new THREE.Vector3();
+
+  /** True when another visible surface is between the camera and the anchor. */
+  function occluded(item) {
+    const distance = direction.copy(item.point).sub(camera.position).length();
+    raycaster.set(camera.position, direction.divideScalar(distance));
+    raycaster.far = distance - OCCLUSION_TOLERANCE;
+    const hit = firstVisibleHit(picker, raycaster, [...heart.pickables(), ...conduction.pickables()], shared);
+    return Boolean(hit && hit.object.userData.key !== item.key);
+  }
 
   function deformed(item, cycle, out) {
     const p = item.rest.toArray();
@@ -96,6 +117,8 @@ export function createLabels({ container, camera, heart, conduction, onPick }) {
       const progress = view.progress;
       const distance = view.distance;
       const candidates = [];
+      const stale = [];
+      const now = performance.now();
 
       for (const item of items.values()) {
         const forced = item.key === hovered || item.key === selected;
@@ -124,13 +147,26 @@ export function createLabels({ container, camera, heart, conduction, onPick }) {
         const x = (item.screen.x * 0.5 + 0.5) * width;
         const y = (-item.screen.y * 0.5 + 0.5) * height;
         const centerDistance = Math.hypot(item.screen.x, item.screen.y);
+        if (!forced && now - item.checkedAt > OCCLUSION_MAX_AGE) stale.push(item);
         candidates.push({ item, x, y, forced, score: (forced ? -10 : 0) + (item.info.priority ?? 3) + centerDistance * 0.8 });
+      }
+
+      // Refresh the oldest occlusion results first, within a small time budget.
+      stale.sort((a, b) => a.checkedAt - b.checkedAt);
+      for (const item of stale) {
+        item.occluded = occluded(item);
+        item.checkedAt = now;
+        if (performance.now() - now > OCCLUSION_BUDGET) break;
       }
 
       candidates.sort((a, b) => a.score - b.score);
       const placed = [];
       let autoCount = 0;
       for (const c of candidates) {
+        if (!c.forced && c.item.occluded) {
+          c.item.visible = false;
+          continue;
+        }
         const left = c.x > width * 0.62;
         const w = c.item.width + 26;
         const box = { x0: left ? c.x - w : c.x - 4, x1: left ? c.x + 4 : c.x + w, y0: c.y - 11, y1: c.y + 11 };

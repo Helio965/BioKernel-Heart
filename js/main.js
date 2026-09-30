@@ -13,6 +13,7 @@ import { createBloodFlow } from './bloodFlow.js';
 import { createCoronaryFlow } from './coronary.js';
 import { createConductionSystem } from './conduction.js';
 import { createInteraction } from './interaction.js';
+import { createPicker } from './picking.js';
 import { createLabels } from './labels.js';
 import { createHeartSound } from './audio.js';
 import { createIntro } from './intro.js';
@@ -159,12 +160,14 @@ async function start(renderer) {
     conduction.setIsolated(key);
     infoCard.setIsolated(Boolean(key));
   }
+  const picker = createPicker();
   const interaction = createInteraction({
     canvas,
     camera,
     heart,
     conduction,
     shared,
+    picker,
     onFocusPoint: (point, key) => cameraMotion.focus(point, key),
     onHover(key) {
       heart.setHovered(key);
@@ -195,6 +198,8 @@ async function start(renderer) {
     camera,
     heart,
     conduction,
+    shared,
+    picker,
     onPick: (key) => select(key),
   });
 
@@ -390,6 +395,7 @@ async function start(renderer) {
   canvas.classList.add('is-ready');
   loader.done();
   intro.start();
+  picker.warmUp(heart.pickables());
 }
 
 /**

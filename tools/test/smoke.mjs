@@ -8,8 +8,10 @@
  *   node tools/test/smoke.mjs http://localhost:8000/
  *
  * Environment:
- *   THREE_LOCAL=<path to node_modules/three>  serve Three.js r170 from a local
- *                                             copy instead of the CDN
+ *   NPM_LOCAL=<path to a node_modules folder>  serve the CDN modules (three,
+ *                                              three-mesh-bvh) from a local
+ *                                              copy (e.g. tools/model-build/
+ *                                              node_modules) instead of jsDelivr
  *   SOFTWARE_GL=1                             force SwiftShader (no GPU)
  *
  * It drives the page through the UI (sliders, buttons, pointer) and reads the
@@ -39,10 +41,11 @@ if (process.env.SOFTWARE_GL) args.push('--use-angle=swiftshader', '--enable-unsa
 const browser = await chromium.launch({ args });
 const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
 
-if (process.env.THREE_LOCAL) {
-  await page.route('https://cdn.jsdelivr.net/npm/three@0.170.0/**', (route) => {
-    const rel = route.request().url().replace('https://cdn.jsdelivr.net/npm/three@0.170.0/', '');
-    route.fulfill({ path: `${process.env.THREE_LOCAL}/${rel}`, contentType: 'text/javascript' });
+if (process.env.NPM_LOCAL) {
+  await page.route('https://cdn.jsdelivr.net/npm/**', (route) => {
+    const match = /^https:\/\/cdn\.jsdelivr\.net\/npm\/((?:@[^/]+\/)?[^@/]+)@[^/]+\/(.*)$/.exec(route.request().url());
+    if (!match) return route.continue();
+    return route.fulfill({ path: `${process.env.NPM_LOCAL}/${match[1]}/${match[2]}`, contentType: 'text/javascript' });
   });
 }
 const problems = [];
@@ -235,6 +238,15 @@ await until('document.querySelectorAll(".label.is-visible").length === 0', 60000
 const labelsOff = await q('document.querySelectorAll(".label.is-visible").length');
 check('labels follow the layer switch', labelsOn > 0 && labelsOff === 0, `${labelsOn} -> ${labelsOff}`);
 await layerToggle('labels', true);
+// Labels only name what is in sight: seen from behind, the left main coronary
+// artery (anterior, under the left auricle) is hidden and gets no label.
+await q(`(() => { const h = window.__heart; const T = h.camera.position.constructor; h.controls.target.set(0.4, 1.2, 0); h.camera.position.copy(h.controls.target).add(new T(-0.15, 0.12, -1).normalize().multiplyScalar(38)); h.controls.update(); return 1; })()`);
+await page.waitForTimeout(1500);
+await until('[...document.querySelectorAll(".label.is-visible")].length > 1', 60000);
+await page.waitForTimeout(1500);
+const backLabels = await q(`[...document.querySelectorAll('.label.is-visible')].map((e) => e.textContent)`);
+check('hidden structures are not labelled', backLabels.length > 0 && !backLabels.includes('Tronco da coronária esquerda'), backLabels.join(', '));
+await view(40);
 
 // --- Audio -----------------------------------------------------------------------------
 await page.click('input[data-setting="sound"]');

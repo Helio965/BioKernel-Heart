@@ -102,5 +102,6 @@ epicárdio com a distribuição da gordura.
 | Componente | Licença | Uso |
 | --- | --- | --- |
 | [Three.js](https://threejs.org/) r170 (e addons oficiais: OrbitControls, GLTFLoader, meshopt decoder, EffectComposer, UnrealBloomPass, OutputPass, RoomEnvironment, RectAreaLightUniformsLib, BufferGeometryUtils) | MIT | carregado do jsDelivr em tempo de execução |
+| [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) 0.8.3 | MIT | seleção por raio acelerada (carregado do jsDelivr) |
 | [webgl-noise](https://github.com/ashima/webgl-noise) (Ashima Arts / Stefan Gustavson) | MIT | ruído simplex nos shaders |
 | Pipeline (somente offline): [glTF-Transform](https://gltf-transform.dev/), [meshoptimizer](https://github.com/zeux/meshoptimizer), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) | MIT | geração do GLB, compressão, raios da oclusão ambiente |

@@ -28,4 +28,4 @@ Third-party material (not covered by the MIT license above)
   Attribution 4.0 International license. The derived model files are
   distributed under CC BY-SA 4.0. See docs/MODEL_LICENSE.md.
 - GLSL simplex noise: Ashima Arts / Stefan Gustavson (webgl-noise, MIT).
-- Three.js (MIT) is loaded from the jsDelivr CDN at runtime.
+- Three.js and three-mesh-bvh (MIT) are loaded from the jsDelivr CDN at runtime.

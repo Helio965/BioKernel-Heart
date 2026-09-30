@@ -196,6 +196,7 @@ js/bloodFlow.js     fluxo sanguíneo (circulações pulmonar e sistêmica)
 js/coronary.js      fluxo coronariano
 js/conduction.js    sistema de condução
 js/interaction.js   Raycaster: hover, seleção, foco
+js/picking.js       raycast acelerado por BVH que acompanha os blend shapes
 js/labels.js        rótulos 3D com desobstrução
 js/audio.js         bulhas B1/B2 sintetizadas
 js/intro.js         animação de abertura
@@ -211,8 +212,16 @@ js/gpu.js, js/quality.js, js/random.js   (Black-Hole)
 - Deformação via blend shapes (textura de morph do WebGL 2), sem cálculo por
   vértice na CPU.
 - Modo translúcido só quando algo está transparente; sombras só na vista externa.
-- Seleção com Raycaster sobre proxies de baixa resolução que compartilham os
-  pesos dos blend shapes, limitada a ~20 Hz.
+- Seleção com Raycaster sobre proxies (nível base) que compartilham os pesos
+  dos blend shapes, acelerada por BVH (`js/picking.js`, three-mesh-bvh): a
+  hierarquia é construída uma vez na pose de repouso (em tempo ocioso, depois
+  do carregamento), as caixas são ampliadas pelo maior deslocamento que os
+  pesos atuais dos blend shapes podem produzir e só os triângulos perto do raio
+  são deformados e testados — o mesmo resultado do `Mesh.raycast`, que testava
+  ~200 mil triângulos por raio (15–30 ms); nós além do `far` do raio são
+  descartados. Hover limitado a ~20 Hz; os rótulos usam o mesmo teste (raios
+  dentro de ~1,5 ms por frame, resultados guardados por 0,4 s) para não
+  rotular o que está escondido.
 - Perfis ultra/high/medium/low (resolução, MSAA, sombras, bloom, relevo
   procedural, lobos extras do material, partículas, nível de detalhe) e
   governador de FPS que reduz nessa ordem, sem nunca remover anatomia.
