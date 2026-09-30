@@ -11,6 +11,7 @@ import { createHeartbeat } from './heartbeat.js';
 import { createCameraReveal } from './cameraReveal.js';
 import { createBloodFlow } from './bloodFlow.js';
 import { createCoronaryFlow } from './coronary.js';
+import { createConductionSystem } from './conduction.js';
 import { createInteraction } from './interaction.js';
 import { createLabels } from './labels.js';
 import {
@@ -96,10 +97,8 @@ async function start(renderer) {
   const reveal = createCameraReveal(shared);
   const bloodFlow = createBloodFlow({ data: heart.data.vessels, field: heart.field, count: quality.flowParticles });
   const coronaryFlow = createCoronaryFlow({ data: heart.data.vessels.coronary, field: heart.field, count: quality.coronaryParticles });
-  scene.add(bloodFlow.object, coronaryFlow.object);
-  // The conduction system is added later; interaction and labels ask it for
-  // nothing yet.
-  const conduction = { group: { visible: false }, pickables: () => [], setHovered() {}, setSelected() {}, setIsolated() {} };
+  const conduction = createConductionSystem({ data: heart.data.conduction, field: heart.field, shared });
+  scene.add(bloodFlow.object, coronaryFlow.object, conduction.group);
 
   // --- Settings -----------------------------------------------------------------
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -115,12 +114,13 @@ async function start(renderer) {
     layers[key] = on;
     if (key === 'bloodFlow') bloodFlow.setVisible(on);
     else if (key === 'coronaryFlow') coronaryFlow.setVisible(on);
+    else if (key === 'conduction') conduction.setVisible(on);
     else if (key === 'labels') labels.setEnabled(on);
     else if (key === 'interior') {
       reveal.setEnabled(on);
       heart.setLayerVisible('interior', on);
     } else heart.setLayerVisible(key, on);
-    legend.update({ flow: layers.bloodFlow || layers.coronaryFlow, conduction: false });
+    legend.update({ flow: layers.bloodFlow || layers.coronaryFlow, conduction: layers.conduction });
   }
 
   const applySetting = {
@@ -230,6 +230,7 @@ async function start(renderer) {
     lighting.setShadows(effects.shadows, profile.shadowMapSize);
     bloodFlow.setCount(profile.flowParticles);
     coronaryFlow.setCount(profile.coronaryParticles);
+    conduction.setPurkinje(profile.purkinje);
     onResize();
     status.setQuality(profile.name, profile.adaptive);
     if (!keepGovernor) governor.restart();
@@ -293,7 +294,7 @@ async function start(renderer) {
   applyQuality(quality);
 
   // Debug / automated tests: read-only handle to the running app.
-  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, conduction, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
 
   // Compile every shader variant up-front (opaque and translucent), so the
   // first zoom does not stutter.
@@ -332,12 +333,16 @@ async function start(renderer) {
     status.setReveal(reveal.levelName);
 
     shared.uTime.value = clock.elapsedTime;
+    shared.uSinceP.value = cycle.sinceP;
+    shared.uQTime.value = cycle.qTime;
+    shared.uQT.value = (cycle.timeline.qs2 - 0.02) * 1000;
+    shared.uElectrical.value += ((layers.conduction ? 1 : 0) - shared.uElectrical.value) * (1 - Math.exp(-delta / 0.3));
     shared.uKeyLightView.value.copy(lighting.keyDirectionView(keyView));
 
     // Blood flow and the conduction system live inside the heart: while one of
     // them is on and the camera is outside, the walls become see-through by
     // themselves (the transparency slider can go further).
-    const wantsAssist = layers.bloodFlow || layers.coronaryFlow ? 0.62 : 0;
+    const wantsAssist = layers.bloodFlow || layers.coronaryFlow || layers.conduction ? 0.62 : 0;
     assist += (wantsAssist - assist) * (1 - Math.exp(-delta / 0.35));
     shared.uUserTransparency.value = Math.max(settings.transparency, assist * (1 - THREE.MathUtils.smoothstep(view.progress, 2, 3)));
 
@@ -351,6 +356,7 @@ async function start(renderer) {
     heart.update(delta, cycle, view.distance);
     bloodFlow.update(delta, cycle);
     coronaryFlow.update(delta, cycle);
+    conduction.update(delta, cycle);
     interaction.update();
     labels.update(delta, cycle, view);
     vitals.update(delta, cycle);
