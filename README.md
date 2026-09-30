@@ -64,6 +64,16 @@ da placa de vídeo, mesmos perfis de qualidade adaptativos e o mesmo iniciador
 | **Anterior** — coronária direita no sulco AV, DA no sulco interventricular anterior, gordura nos sulcos | **Posterior** — aorta descendente, veias pulmonares chegando ao átrio esquerdo, veias cavas |
 | ![Vista lateral esquerda](docs/screenshots/left.jpg) | ![Vasos da superfície](docs/screenshots/vessels.jpg) |
 | **Lateral esquerda** — aurícula esquerda, circunflexa e veia cardíaca magna | **Nível 1** — ao aproximar, os vasos da superfície ganham destaque |
+| ![Miocárdio translúcido](docs/screenshots/translucent.jpg) | ![Estruturas profundas](docs/screenshots/deep.jpg) |
+| **Nível 2** — o epicárdio some e o miocárdio começa a abrir em volta da linha de visão | **Nível 3** — valvas, cordas tendíneas, septos e músculos papilares |
+| ![Interior](docs/screenshots/interior.jpg) | ![Câmaras](docs/screenshots/chambers.jpg) |
+| **Nível 4** — dentro do coração: válvulas pulmonares, folhetos mitrais, papilar septal do VD | **Câmaras** — volumes de sangue das cavidades por dentro das paredes |
+| ![Fluxo sanguíneo](docs/screenshots/blood-flow.jpg) | ![Fluxo coronariano](docs/screenshots/coronary-flow.jpg) |
+| **Fluxo sanguíneo** — azul (menos oxigenado) pelo lado direito até o tronco pulmonar, vermelho (mais oxigenado) das veias pulmonares à aorta | **Circulação coronariana** — artérias enchendo na diástole, veias drenando no seio coronário |
+| ![Sistema elétrico](docs/screenshots/conduction.jpg) | ![Seleção](docs/screenshots/selection.jpg) |
+| **Sistema elétrico** — a onda de despolarização percorrendo os ventrículos pela rede de Purkinje | **Seleção** — nome, tipo, descrição e função da estrutura |
+| ![Isolamento](docs/screenshots/isolation.jpg) | ![Celular](docs/screenshots/mobile.jpg) |
+| **Isolar** — só a coronária direita em destaque; o resto fica translúcido | **Celular** — HUD compacto e controles por toque |
 
 As imagens foram capturadas do próprio projeto (Chromium, perfil `high`).
 
