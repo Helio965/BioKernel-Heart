@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import { LAYERS } from './anatomy.js';
 import { createRenderer, createLighting, createComposer } from './renderer.js';
 import { describeGpu } from './gpu.js';
 import { detectQualityProfile, profileFor, createFrameRateGovernor } from './quality.js';
+import { createSharedUniforms } from './materials.js';
+import { createHeart } from './heart.js';
 import { createControlsPanel, createPerformanceStatus, createLoader, setupHint } from './ui.js';
 
 // ---------------------------------------------------------------------------
@@ -17,11 +20,19 @@ const MAX_DISTANCE = 90;
 const HOME_DIRECTION = new THREE.Vector3(0.12, 0.1, 1).normalize();
 const HOME_TARGET = new THREE.Vector3(0.4, 1.2, 0);
 
+// Rest pose (end-diastole) until the cardiac cycle is added.
+const REST = { ventricular: 0, atrial: 0, distension: 0, valves: {} };
+
 const canvas = document.getElementById('scene');
 const loader = createLoader();
 const renderer = location.protocol === 'file:' ? null : createRenderer(canvas);
 
-if (renderer) start(renderer);
+if (renderer) {
+  start(renderer).catch((error) => {
+    console.error(error);
+    loader.fail('Não foi possível carregar o modelo: ' + (error?.message ?? error));
+  });
+}
 
 /** Distance that frames the heart and the great vessels for an aspect ratio. */
 function idealDistance(aspect) {
@@ -36,7 +47,7 @@ function homePosition(aspect, target = new THREE.Vector3()) {
   return target.copy(HOME_DIRECTION).multiplyScalar(idealDistance(aspect)).add(HOME_TARGET);
 }
 
-function start(renderer) {
+async function start(renderer) {
   const gpu = describeGpu(renderer);
   let quality = detectQualityProfile(gpu);
   let maxPixelRatio = quality.maxPixelRatio;
@@ -45,6 +56,7 @@ function start(renderer) {
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, 0.05, 500);
   homePosition(camera.aspect, camera.position);
 
+  // 360° orbit: drag to rotate, wheel / pinch to zoom (towards the pointer).
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.07;
@@ -52,12 +64,27 @@ function start(renderer) {
   controls.maxDistance = MAX_DISTANCE;
   controls.rotateSpeed = 0.65;
   controls.zoomSpeed = 0.9;
+  controls.zoomToCursor = true;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.autoRotateSpeed = 0.9;
   controls.target.copy(HOME_TARGET);
   controls.update();
   const cameraMotion = createCameraMotion(camera, controls);
 
   const lighting = createLighting(renderer, scene, camera);
   const post = createComposer(renderer, scene, camera, quality);
+  const shared = createSharedUniforms();
+  shared.uMicroDetail.value = quality.microDetail;
+
+  const heart = await createHeart({ shared, onProgress: (f) => loader.progress(f) });
+  scene.add(heart.group);
+
+  const layers = Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn]));
+  function applyLayer(key, on) {
+    layers[key] = on;
+    heart.setLayerVisible(key, on);
+  }
 
   function onResize() {
     const width = window.innerWidth;
@@ -78,13 +105,13 @@ function start(renderer) {
     maxPixelRatio = profile.maxPixelRatio;
     post.bloom.enabled = profile.bloom;
     post.setMsaa(profile.msaa);
+    shared.uMicroDetail.value = profile.microDetail;
     lighting.setShadows(profile.shadows, profile.shadowMapSize);
     onResize();
     status.setQuality(profile.name, profile.adaptive);
     governor.restart();
   }
 
-  // Keep the animation fluid on slower devices (Black-Hole governor).
   const governor = createFrameRateGovernor({
     onDowngrade(step, fps) {
       if (!quality.adaptive) return;
@@ -93,6 +120,12 @@ function start(renderer) {
         onResize();
       } else if (step === 'bloom') {
         post.bloom.enabled = false;
+      } else if (step === 'microDetail') {
+        shared.uMicroDetail.value *= 0.5;
+      } else if (step === 'shadows') {
+        lighting.setShadows(false);
+      } else if (step === 'msaa') {
+        post.setMsaa(0);
       }
       console.info(`[heart] ${fps.toFixed(1)} fps -> reduced ${step}`);
     },
@@ -101,20 +134,25 @@ function start(renderer) {
   const status = createPerformanceStatus(gpu);
   const panel = createControlsPanel({
     values: { bpm: 72, transparency: 0, sound: false, autoRotate: false },
-    layers: {},
+    layers,
     onChange(key, value) {
       if (key === 'autoRotate') controls.autoRotate = value;
     },
-    onLayer: () => {},
+    onLayer: applyLayer,
     onQuality: (choice) => applyQuality(profileFor(choice, gpu)),
     onResetCamera: () => cameraMotion.reset(),
   });
   panel.setQualityChoice(quality.choice);
   setupHint(canvas);
+  for (const [key, on] of Object.entries(layers)) applyLayer(key, on);
   applyQuality(quality);
+
+  window.__heart = { scene, camera, controls, heart, layers, applyLayer };
+  await renderer.compileAsync(scene, camera);
 
   const clock = new THREE.Clock();
   const fpsMeter = { frames: 0, elapsed: 0 };
+  const keyView = new THREE.Vector3();
 
   function frame() {
     requestAnimationFrame(frame);
@@ -130,7 +168,18 @@ function start(renderer) {
     const delta = Math.min(rawDelta, 0.1);
     cameraMotion.update(delta);
     controls.update(delta);
-    lighting.update(camera.position.distanceTo(controls.target));
+    camera.updateMatrixWorld();
+
+    const distance = camera.position.distanceTo(controls.target);
+    lighting.update(distance);
+    shared.uTime.value = clock.elapsedTime;
+    shared.uCameraPos.value.copy(camera.position);
+    shared.uTarget.value.copy(controls.target);
+    shared.uKeyLightView.value.copy(lighting.keyDirectionView(keyView));
+
+    const fading = [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
+    heart.setTranslucent(fading);
+    heart.update(delta, REST, distance);
     post.composer.render(delta);
   }
 
