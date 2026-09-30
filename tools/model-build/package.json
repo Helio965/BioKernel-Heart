@@ -1,0 +1,18 @@
+{
+  "name": "heart-model-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Offline pipeline that turns BodyParts3D cardiac meshes into assets/models/*.glb. Not needed to run the app.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "^4.1.0",
+    "@gltf-transform/extensions": "^4.1.0",
+    "@gltf-transform/functions": "^4.1.0",
+    "meshoptimizer": "^0.22.0",
+    "three": "0.170.0",
+    "three-mesh-bvh": "^0.8.3"
+  }
+}
