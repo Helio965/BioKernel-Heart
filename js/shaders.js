@@ -293,6 +293,22 @@ export const tissueAoChunk = /* glsl */ `
     reflectedLight.indirectSpecular *= mix(1.0, bakedAO, 0.8);
     reflectedLight.directDiffuse *= mix(1.0, bakedAO, 0.45);
     reflectedLight.directSpecular *= mix(1.0, bakedAO, 0.35);
+    // Back faces of a vessel are the inside of a cut tube: the lumen is in
+    // shadow, it should not shine like the outer wall.
+    if (!gl_FrontFacing && uTissueKind > 1.5 && uTissueKind < 2.5) {
+      reflectedLight.directDiffuse *= 0.45;
+      reflectedLight.indirectDiffuse *= 0.5;
+      reflectedLight.directSpecular *= 0.2;
+      reflectedLight.indirectSpecular *= 0.25;
+      #ifdef USE_CLEARCOAT
+        clearcoatSpecularDirect *= 0.2;
+        clearcoatSpecularIndirect *= 0.2;
+      #endif
+      #ifdef USE_SHEEN
+        sheenSpecularDirect *= 0.3;
+        sheenSpecularIndirect *= 0.3;
+      #endif
+    }
   }
 `;
 
