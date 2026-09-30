@@ -1,0 +1,21 @@
+# Dependencies (the app itself has none; only the offline model pipeline does)
+node_modules/
+
+# Model pipeline download cache (BodyParts3D archive, 143 MB)
+tools/model-build/.cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Local test output
+/screenshots/
+test-results/
+playwright-report/

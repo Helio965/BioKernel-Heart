@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#050203" />
+  <meta name="description" content="Coração humano 3D anatômico e interativo: batimento com ciclo cardíaco, BPM ajustável, câmaras, valvas, coronárias, veias, grandes vasos, fluxo sanguíneo e sistema elétrico, em Three.js/WebGL 2." />
+  <title>Human Heart · Interactive Cardiac Anatomy</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M30 8c0 6 1 9 4 12' stroke='%23e9c7b6' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M38 6c-1 7-2 10-1 14' stroke='%23c43a4a' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M18 26c6-10 22-10 30-4 9 7 8 22-4 32-5 4-9 6-12 6-8-3-18-14-18-24 0-4 1-7 4-10z' fill='%23a3222f'/%3E%3Cpath d='M30 26c4 8 6 18 3 30' stroke='%23e9b8a0' stroke-width='2' fill='none'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- Three.js via ES Modules: sem build, sem npm (igual ao Black-Hole). -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+        "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.8.3/build/index.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene" aria-label="Coração humano 3D interativo"></canvas>
+  <div class="labels" id="labels" aria-hidden="true"></div>
+
+  <aside class="hud" id="hud" aria-label="Human Heart">
+    <header class="hud__header">
+      <h1 class="hud__title">HUMAN HEART</h1>
+      <p class="hud__subtitle">Interactive Cardiac Anatomy</p>
+
+      <div class="hud__vitals">
+        <p class="hud__bpm" aria-live="off"><span id="bpm-value">72</span><small>BPM</small></p>
+        <canvas class="hud__ecg" id="ecg" width="300" height="68" aria-label="Traçado de ECG simplificado"></canvas>
+      </div>
+      <p class="hud__phase"><span class="hud__beat" id="beat-dot" aria-hidden="true"></span><span id="phase-name">—</span></p>
+
+      <p class="hud__gpu" id="gpu-status" data-kind="other">
+        <span class="hud__dot" aria-hidden="true"></span>
+        <span class="hud__gpu-name" id="gpu-name">detectando GPU…</span>
+        <span class="hud__fps" id="fps-value"></span>
+      </p>
+      <p class="hud__meta">Qualidade <strong id="quality-value">—</strong><span class="hud__sep">·</span><span id="reveal-level">Exterior</span></p>
+      <button class="hud__link" id="gpu-help-open" type="button" hidden>Está travando? Use a placa de vídeo dedicada</button>
+    </header>
+
+    <button class="hud__toggle" id="controls-toggle" type="button" aria-expanded="false" aria-controls="controls">
+      Controles
+      <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" /></svg>
+    </button>
+
+    <form class="controls" id="controls" hidden>
+      <section class="controls__group" aria-labelledby="group-beat">
+        <h2 class="controls__title" id="group-beat">Batimentos cardíacos</h2>
+        <label class="control">
+          <span class="control__label">Frequência <output data-output="bpm"></output></span>
+          <input type="range" data-setting="bpm" min="40" max="180" step="1" />
+          <span class="control__scale" aria-hidden="true"><span>40</span><span>180 BPM</span></span>
+        </label>
+        <div class="presets" role="group" aria-label="Presets de frequência">
+          <button type="button" data-bpm="60">60</button>
+          <button type="button" data-bpm="75">75</button>
+          <button type="button" data-bpm="100">100</button>
+          <button type="button" data-bpm="140">140</button>
+        </div>
+        <p class="controls__note" id="rhythm-note">Repouso</p>
+      </section>
+
+      <section class="controls__group" aria-labelledby="group-anatomy">
+        <h2 class="controls__title" id="group-anatomy">Anatomia</h2>
+        <div class="layers" id="layers"></div>
+      </section>
+
+      <section class="controls__group" aria-labelledby="group-view">
+        <h2 class="controls__title" id="group-view">Visualização</h2>
+        <label class="control">
+          <span class="control__label">Transparência <output data-output="transparency"></output></span>
+          <input type="range" data-setting="transparency" min="0" max="1" step="0.01" />
+        </label>
+        <label class="control control--switch">
+          <span class="control__label">Som do coração</span>
+          <input type="checkbox" data-setting="sound" role="switch" />
+        </label>
+        <label class="control control--switch">
+          <span class="control__label">Rotação automática</span>
+          <input type="checkbox" data-setting="autoRotate" role="switch" />
+        </label>
+      </section>
+
+      <section class="controls__group" aria-labelledby="group-quality">
+        <h2 class="controls__title" id="group-quality">Qualidade</h2>
+        <div class="segmented" role="radiogroup" aria-labelledby="group-quality">
+          <label><input type="radio" name="quality" value="auto" /><span>Auto</span></label>
+          <label><input type="radio" name="quality" value="ultra" /><span>Ultra</span></label>
+          <label><input type="radio" name="quality" value="high" /><span>High</span></label>
+          <label><input type="radio" name="quality" value="medium" /><span>Med</span></label>
+          <label><input type="radio" name="quality" value="low" /><span>Low</span></label>
+        </div>
+      </section>
+
+      <button class="controls__reset" id="reset-camera" type="button">Resetar câmera</button>
+    </form>
+  </aside>
+
+  <section class="info" id="info" hidden aria-live="polite" aria-labelledby="info-name">
+    <button class="info__close" id="info-close" type="button" aria-label="Fechar">×</button>
+    <p class="info__type" id="info-type"></p>
+    <h2 class="info__name" id="info-name"></h2>
+    <p class="info__en" id="info-en"></p>
+    <p class="info__text" id="info-description"></p>
+    <h3 class="info__heading">Função</h3>
+    <p class="info__text" id="info-function"></p>
+    <p class="info__derived" id="info-derived" hidden></p>
+    <div class="info__actions">
+      <button type="button" id="info-isolate">Isolar</button>
+      <button type="button" id="info-focus">Focar</button>
+    </div>
+  </section>
+
+  <button class="restore" id="restore" type="button" hidden>Voltar ao coração completo</button>
+
+  <div class="legend" id="legend" hidden>
+    <p class="legend__row" data-legend="flow"><span class="legend__swatch legend__swatch--oxy"></span>Sangue mais oxigenado</p>
+    <p class="legend__row" data-legend="flow"><span class="legend__swatch legend__swatch--deoxy"></span>Sangue menos oxigenado</p>
+    <p class="legend__row" data-legend="conduction"><span class="legend__swatch legend__swatch--pulse"></span>Impulso elétrico</p>
+  </div>
+
+  <div class="loader" id="loader" role="status">
+    <div class="loader__ring" aria-hidden="true"></div>
+    <p class="loader__text" id="loader-text">Carregando modelo anatômico…</p>
+  </div>
+
+  <section class="gpu-help" id="gpu-help" data-kind="integrated" hidden aria-labelledby="gpu-help-title">
+    <button class="gpu-help__close" id="gpu-help-close" type="button" aria-label="Fechar">×</button>
+    <h2 class="gpu-help__title" id="gpu-help-title">Use a placa de vídeo dedicada</h2>
+    <p class="only-integrated">
+      O navegador está usando <strong class="js-gpu-name">a GPU integrada</strong>. Em notebooks com duas placas
+      de vídeo (por exemplo Intel/AMD + NVIDIA), o Windows costuma entregar a mais fraca ao navegador.
+    </p>
+    <p class="only-software">
+      O navegador está desenhando a cena na <strong>CPU</strong>, sem usar a placa de vídeo, e por isso trava.
+    </p>
+    <p>
+      <strong>Jeito mais fácil (Windows):</strong> feche esta janela e dê dois cliques em <code>iniciar.bat</code>.
+      Ele abre o projeto numa janela do Chrome/Edge que pede a placa de alto desempenho.
+    </p>
+    <p>Ou configure o navegador manualmente:</p>
+    <ol>
+      <li>No Chrome, em <em>Configurações → Sistema</em>, ligue <em>Usar aceleração de gráficos quando disponível</em>.</li>
+      <li>
+        No Windows, abra <em>Configurações → Sistema → Tela → Elementos gráficos</em>, escolha o
+        <em>Google Chrome</em> → <em>Opções</em> → <em>Alto desempenho</em> (NVIDIA) → <em>Salvar</em>.
+      </li>
+      <li>
+        Ou cole na barra de endereço <code>chrome://flags/#force-high-performance-gpu</code>
+        <button class="gpu-help__copy" type="button" data-copy="chrome://flags/#force-high-performance-gpu">copiar</button>,
+        escolha <em>Enabled</em> e clique em <em>Relaunch</em>.
+      </li>
+      <li>Ligue o notebook na tomada e <strong>feche e abra o navegador de novo</strong>.</li>
+    </ol>
+    <p class="gpu-help__foot">
+      Deu certo quando o painel mostrar a NVIDIA com o ponto verde. No Microsoft Edge, use <code>edge://flags</code>.
+    </p>
+  </section>
+
+  <p class="hint" id="hint">Arraste para girar · Role ou use pinça para aproximar · Clique numa estrutura</p>
+
+  <p class="disclaimer">
+    Visualização anatômica educacional. Não destinada a diagnóstico médico, planejamento cirúrgico ou decisão clínica.
+  </p>
+
+  <p class="fallback" id="fallback" hidden>
+    Seu navegador não conseguiu iniciar o WebGL 2.<br />
+    Tente um navegador atualizado com aceleração de hardware ativada.
+  </p>
+
+  <section class="notice" id="file-notice" hidden>
+    <h2 class="notice__title">Abra pelo servidor local</h2>
+    <p>
+      O navegador bloqueia os módulos JavaScript e o modelo 3D quando o <code>index.html</code>
+      é aberto direto do disco (<code>file://</code>).
+    </p>
+    <ol>
+      <li><strong>Windows:</strong> dê dois cliques em <code>iniciar.bat</code>, na pasta do projeto.</li>
+      <li><strong>Qualquer sistema:</strong> rode <code>python -m http.server 8000</code> na pasta e abra <code>http://localhost:8000</code>.</li>
+    </ol>
+  </section>
+
+  <script>
+    // ES modules and fetch() never work from file:// — explain it instead of a black screen.
+    if (location.protocol === 'file:') {
+      document.getElementById('file-notice').hidden = false;
+      document.getElementById('loader').hidden = true;
+      document.getElementById('hint').hidden = true;
+      document.getElementById('controls-toggle').hidden = true;
+      document.getElementById('gpu-status').hidden = true;
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
