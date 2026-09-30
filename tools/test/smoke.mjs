@@ -227,6 +227,7 @@ await page.click('#info-isolate');
 await until(`[...window.__heart.heart.structures.values()].filter((s) => s.dim > 0.8).length > 60`, 60000);
 const dim = await q(`(() => { const s = [...window.__heart.heart.structures.values()]; return { dimmed: s.filter((x) => x.dim > 0.8).length, total: s.length, restore: !document.getElementById('restore').hidden }; })()`);
 check('isolation dims every other structure', dim.dimmed >= dim.total - 2 && dim.restore, JSON.stringify(dim));
+check('dimmed valves and papillary muscles become see-through', await q(`['mitralAnterior', 'tricuspidChordae', 'pmLvAnterolateral'].every((k) => window.__heart.heart.structures.get(k).material.transparent)`));
 await page.click('#restore');
 await until(`[...window.__heart.heart.structures.values()].every((s) => s.dim < 0.2)`, 60000);
 check('back to the complete heart', (await q(`[...window.__heart.heart.structures.values()].every((s) => s.dim < 0.2)`)) && (await q('document.getElementById("restore").hidden')));

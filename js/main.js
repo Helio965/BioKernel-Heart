@@ -325,8 +325,10 @@ async function start(renderer) {
   // Compile every shader variant up-front (opaque and translucent), so the
   // first zoom does not stutter.
   heart.setTranslucent(true);
+  heart.setGhosts(true); // see-through valves and papillary muscles (isolation)
   await renderer.compileAsync(scene, camera);
   heart.setTranslucent(false);
+  heart.setGhosts(false);
   await renderer.compileAsync(scene, camera);
 
   // --- Animation loop -------------------------------------------------------------

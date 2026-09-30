@@ -73,8 +73,9 @@ export async function createHeart({ shared, onProgress = () => {} }) {
         dim: 0,
         dimTarget: 0,
       };
+      structure.canFade = Boolean(structure.family.fade && !structure.family.transparentAlways);
       structures.set(key, structure);
-      if (structure.family.fade && !structure.family.transparentAlways) fadeCapable.push(structure);
+      if (structure.canFade) fadeCapable.push(structure);
     }
 
     // Keep the node transform (quantisation scale/offset) on the mesh itself.
@@ -212,6 +213,21 @@ export async function createHeart({ shared, onProgress = () => {} }) {
     isolated = key;
   }
 
+  /**
+   * Valves, chordae and papillary muscles have no reveal fade, so they are
+   * normally opaque; while an isolation dims them they switch to their
+   * see-through variant. `setGhosts` forces that variant (to precompile it).
+   */
+  function setGhost(s, on) {
+    if (s.canFade || s.family.transparentAlways || s.material.transparent === on) return;
+    s.material.transparent = on;
+    s.material.depthWrite = !on;
+    s.material.needsUpdate = true;
+  }
+  function setGhosts(on) {
+    for (const s of structures.values()) setGhost(s, on);
+  }
+
   const setInfluence = (mesh, name, value) => {
     const index = mesh.morphTargetDictionary?.[name];
     if (index !== undefined) mesh.morphTargetInfluences[index] = value;
@@ -238,6 +254,7 @@ export async function createHeart({ shared, onProgress = () => {} }) {
       s.highlight += ((isHovered && !isSelected ? 1 : 0) - s.highlight) * k;
       s.dimTarget = isolated && isolated !== s.key ? 1 : 0;
       s.dim += (s.dimTarget - s.dim) * k;
+      setGhost(s, s.dim > 0.01);
       const u = s.uniforms;
       u.uLayerOpacity.value = s.layerOpacity * introFade;
       u.uHighlight.value = s.highlight;
@@ -300,6 +317,7 @@ export async function createHeart({ shared, onProgress = () => {} }) {
       return usingDetail;
     },
     setTranslucent,
+    setGhosts,
     get translucent() {
       return translucent;
     },
