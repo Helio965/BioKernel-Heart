@@ -8,6 +8,7 @@ import { detectQualityProfile, profileFor, createFrameRateGovernor } from './qua
 import { createSharedUniforms } from './materials.js';
 import { createHeart } from './heart.js';
 import { createHeartbeat } from './heartbeat.js';
+import { createCameraReveal } from './cameraReveal.js';
 import { createControlsPanel, createPerformanceStatus, createVitals, createLoader, setupHint } from './ui.js';
 
 // ---------------------------------------------------------------------------
@@ -78,11 +79,14 @@ async function start(renderer) {
   const heart = await createHeart({ shared, onProgress: (f) => loader.progress(f) });
   scene.add(heart.group);
   const heartbeat = createHeartbeat({ bpm: 72 });
+  const reveal = createCameraReveal(shared);
+  const settings = { bpm: 72, transparency: 0, sound: false, autoRotate: false };
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   const layers = Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn]));
   function applyLayer(key, on) {
     layers[key] = on;
+    if (key === 'interior') reveal.setEnabled(on);
     heart.setLayerVisible(key, on);
   }
 
@@ -134,9 +138,10 @@ async function start(renderer) {
   const status = createPerformanceStatus(gpu);
   const vitals = createVitals();
   const panel = createControlsPanel({
-    values: { bpm: 72, transparency: 0, sound: false, autoRotate: false },
+    values: settings,
     layers,
     onChange(key, value) {
+      settings[key] = value;
       if (key === 'bpm') heartbeat.setBpm(value);
       if (key === 'autoRotate') controls.autoRotate = value;
     },
@@ -158,8 +163,14 @@ async function start(renderer) {
     }
   });
 
-  window.__heart = { scene, camera, controls, heart, heartbeat, layers, applyLayer };
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, settings, layers, applyLayer };
+
+  // Compile the opaque and translucent variants up-front.
+  heart.setTranslucent(true);
   await renderer.compileAsync(scene, camera);
+  heart.setTranslucent(false);
+  await renderer.compileAsync(scene, camera);
+  let translucentHold = 0;
 
   const clock = new THREE.Clock();
   const fpsMeter = { frames: 0, elapsed: 0 };
@@ -181,15 +192,19 @@ async function start(renderer) {
     controls.update(delta);
     camera.updateMatrixWorld();
 
-    const distance = camera.position.distanceTo(controls.target);
+    const view = reveal.update(delta, camera, controls.target);
+    const distance = view.distance;
     lighting.update(distance);
+    status.setReveal(reveal.levelName);
     shared.uTime.value = clock.elapsedTime;
-    shared.uCameraPos.value.copy(camera.position);
-    shared.uTarget.value.copy(controls.target);
+    shared.uUserTransparency.value = settings.transparency;
     shared.uKeyLightView.value.copy(lighting.keyDirectionView(keyView));
 
+    // Translucent rendering only while something is see-through.
     const fading = [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
-    heart.setTranslucent(fading);
+    translucentHold = view.progress > 1.9 || settings.transparency > 0.001 || fading ? 0.5 : translucentHold - delta;
+    heart.setTranslucent(translucentHold > 0);
+    lighting.setShadows(quality.shadows && view.progress < 1.8, quality.shadowMapSize);
     const cycle = heartbeat.update(prefersReducedMotion ? delta * 0.6 : delta);
     heart.update(delta, cycle, distance);
     vitals.update(delta, cycle);
