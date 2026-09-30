@@ -7,7 +7,8 @@ import { describeGpu } from './gpu.js';
 import { detectQualityProfile, profileFor, createFrameRateGovernor } from './quality.js';
 import { createSharedUniforms } from './materials.js';
 import { createHeart } from './heart.js';
-import { createControlsPanel, createPerformanceStatus, createLoader, setupHint } from './ui.js';
+import { createHeartbeat } from './heartbeat.js';
+import { createControlsPanel, createPerformanceStatus, createVitals, createLoader, setupHint } from './ui.js';
 
 // ---------------------------------------------------------------------------
 // Scene units: 1 unit = 1 cm. Origin = centre of the four cardiac cavities,
@@ -19,9 +20,6 @@ const MIN_DISTANCE = 1.2;
 const MAX_DISTANCE = 90;
 const HOME_DIRECTION = new THREE.Vector3(0.12, 0.1, 1).normalize();
 const HOME_TARGET = new THREE.Vector3(0.4, 1.2, 0);
-
-// Rest pose (end-diastole) until the cardiac cycle is added.
-const REST = { ventricular: 0, atrial: 0, distension: 0, valves: {} };
 
 const canvas = document.getElementById('scene');
 const loader = createLoader();
@@ -79,6 +77,8 @@ async function start(renderer) {
 
   const heart = await createHeart({ shared, onProgress: (f) => loader.progress(f) });
   scene.add(heart.group);
+  const heartbeat = createHeartbeat({ bpm: 72 });
+  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   const layers = Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn]));
   function applyLayer(key, on) {
@@ -132,10 +132,12 @@ async function start(renderer) {
   });
 
   const status = createPerformanceStatus(gpu);
+  const vitals = createVitals();
   const panel = createControlsPanel({
     values: { bpm: 72, transparency: 0, sound: false, autoRotate: false },
     layers,
     onChange(key, value) {
+      if (key === 'bpm') heartbeat.setBpm(value);
       if (key === 'autoRotate') controls.autoRotate = value;
     },
     onLayer: applyLayer,
@@ -147,7 +149,16 @@ async function start(renderer) {
   for (const [key, on] of Object.entries(layers)) applyLayer(key, on);
   applyQuality(quality);
 
-  window.__heart = { scene, camera, controls, heart, layers, applyLayer };
+  // Space pauses the beat (to look at one phase), unless a control has focus.
+  document.addEventListener('keydown', (event) => {
+    const typing = event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea');
+    if (event.code === 'Space' && !typing) {
+      event.preventDefault();
+      heartbeat.setPaused(!heartbeat.paused);
+    }
+  });
+
+  window.__heart = { scene, camera, controls, heart, heartbeat, layers, applyLayer };
   await renderer.compileAsync(scene, camera);
 
   const clock = new THREE.Clock();
@@ -179,7 +190,9 @@ async function start(renderer) {
 
     const fading = [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
     heart.setTranslucent(fading);
-    heart.update(delta, REST, distance);
+    const cycle = heartbeat.update(prefersReducedMotion ? delta * 0.6 : delta);
+    heart.update(delta, cycle, distance);
+    vitals.update(delta, cycle);
     post.composer.render(delta);
   }
 

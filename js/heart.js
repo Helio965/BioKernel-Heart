@@ -5,6 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { STRUCTURES } from './anatomy.js';
 import { createCardiacField } from './cardiacField.js';
 import { createTissueMaterial, createDepthPrepassMaterial, familyOf, setMaterialLevel } from './materials.js';
+import { valveOf, valveBlend } from './valves.js';
 
 const MODEL_BASE = 'assets/models/heart-base.glb';
 const MODEL_DETAIL = 'assets/models/heart-detail.glb';
@@ -108,6 +109,8 @@ export async function createHeart({ shared, onProgress = () => {} }) {
     }
   }
 
+  // Valve blend shapes: which valve drives each mesh.
+  for (const s of structures.values()) for (const m of s.meshes) m.userData.valve = valveOf(m.userData.key);
 
   // -------------------------------------------------------------------------
   // Levels of detail (base geometry now, subdivided geometry on demand)
@@ -218,6 +221,8 @@ export async function createHeart({ shared, onProgress = () => {} }) {
    */
   function update(delta, cycle, cameraDistance) {
     const k = 1 - Math.exp(-delta / 0.18);
+    const blends = {};
+    for (const [valve, opening] of Object.entries(cycle.valves)) blends[valve] = valveBlend(opening);
 
     // Semantic level of detail: small branches appear as the camera gets closer.
     const smallBranches = THREE.MathUtils.smoothstep(34 - cameraDistance, 0, 8);
@@ -242,6 +247,11 @@ export async function createHeart({ shared, onProgress = () => {} }) {
         setInfluence(mesh, 'ventricularSystole', cycle.ventricular);
         setInfluence(mesh, 'atrialSystole', cycle.atrial);
         setInfluence(mesh, 'arterialDistension', cycle.distension);
+        const valve = mesh.userData.valve;
+        if (valve) {
+          setInfluence(mesh, 'valveHalf', blends[valve][0]);
+          setInfluence(mesh, 'valveOpen', blends[valve][1]);
+        }
       }
       for (const d of s.depthMeshes) d.visible = translucent && visible;
     }
