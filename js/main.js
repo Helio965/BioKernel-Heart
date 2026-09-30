@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { LAYERS } from './anatomy.js';
+import { LAYERS, STRUCTURES } from './anatomy.js';
 import { createRenderer, createLighting, createComposer } from './renderer.js';
 import { describeGpu } from './gpu.js';
 import { detectQualityProfile, profileFor, createFrameRateGovernor } from './quality.js';
@@ -9,7 +9,16 @@ import { createSharedUniforms } from './materials.js';
 import { createHeart } from './heart.js';
 import { createHeartbeat } from './heartbeat.js';
 import { createCameraReveal } from './cameraReveal.js';
-import { createControlsPanel, createPerformanceStatus, createVitals, createLoader, setupHint } from './ui.js';
+import { createInteraction } from './interaction.js';
+import { createLabels } from './labels.js';
+import {
+  createControlsPanel,
+  createPerformanceStatus,
+  createVitals,
+  createInfoCard,
+  createLoader,
+  setupHint,
+} from './ui.js';
 
 // ---------------------------------------------------------------------------
 // Scene units: 1 unit = 1 cm. Origin = centre of the four cardiac cavities,
@@ -55,7 +64,6 @@ async function start(renderer) {
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, 0.05, 500);
   homePosition(camera.aspect, camera.position);
 
-  // 360° orbit: drag to rotate, wheel / pinch to zoom (towards the pointer).
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.07;
@@ -63,7 +71,7 @@ async function start(renderer) {
   controls.maxDistance = MAX_DISTANCE;
   controls.rotateSpeed = 0.65;
   controls.zoomSpeed = 0.9;
-  controls.zoomToCursor = true;
+  controls.zoomToCursor = true; // approach the structure under the pointer
   controls.enablePan = true;
   controls.screenSpacePanning = true;
   controls.autoRotateSpeed = 0.9;
@@ -76,20 +84,107 @@ async function start(renderer) {
   const shared = createSharedUniforms();
   shared.uMicroDetail.value = quality.microDetail;
 
+  // --- Model --------------------------------------------------------------------
   const heart = await createHeart({ shared, onProgress: (f) => loader.progress(f) });
   scene.add(heart.group);
+
   const heartbeat = createHeartbeat({ bpm: 72 });
   const reveal = createCameraReveal(shared);
-  const settings = { bpm: 72, transparency: 0, sound: false, autoRotate: false };
-  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  // The conduction system is added later; interaction and labels ask it for
+  // nothing yet.
+  const conduction = { group: { visible: false }, pickables: () => [], setHovered() {}, setSelected() {}, setIsolated() {} };
 
+  // --- Settings -----------------------------------------------------------------
+  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  const settings = {
+    bpm: 72,
+    transparency: 0,
+    sound: false,
+    autoRotate: false,
+  };
   const layers = Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn]));
+
   function applyLayer(key, on) {
     layers[key] = on;
-    if (key === 'interior') reveal.setEnabled(on);
-    heart.setLayerVisible(key, on);
+    if (key === 'labels') labels.setEnabled(on);
+    else if (key === 'interior') {
+      reveal.setEnabled(on);
+      heart.setLayerVisible('interior', on);
+    } else heart.setLayerVisible(key, on);
   }
 
+  const applySetting = {
+    bpm: (v) => heartbeat.setBpm(v),
+    transparency: () => {}, // blended every frame with the see-through assist
+
+    autoRotate: (v) => {
+      controls.autoRotate = v;
+    },
+  };
+
+  // --- Interaction ------------------------------------------------------------------
+  let selectedKey = null;
+  let isolatedKey = null;
+  const infoCard = createInfoCard({
+    onIsolate: () => isolate(isolatedKey === selectedKey ? null : selectedKey),
+    onFocus: () => selectedKey && cameraMotion.focus(labels.anchorPoint(selectedKey, heartbeat.state), selectedKey),
+    onClose: () => select(null),
+    onRestore: () => isolate(null),
+  });
+  function select(key) {
+    selectedKey = key;
+    heart.setSelected(key);
+    conduction.setSelected(key);
+    labels.setSelected(key);
+    if (key) infoCard.show(STRUCTURES[key]);
+    else infoCard.hide();
+  }
+  function isolate(key) {
+    isolatedKey = key;
+    heart.setIsolated(key);
+    conduction.setIsolated(key);
+    infoCard.setIsolated(Boolean(key));
+  }
+  const interaction = createInteraction({
+    canvas,
+    camera,
+    heart,
+    conduction,
+    shared,
+    onFocusPoint: (point, key) => cameraMotion.focus(point, key),
+    onHover(key) {
+      heart.setHovered(key);
+      conduction.setHovered(key);
+      labels.setHovered(key);
+      canvas.classList.toggle('is-pointing', Boolean(key));
+    },
+    onSelect(key) {
+      select(key);
+    },
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      if (isolatedKey) isolate(null);
+      else if (selectedKey) select(null);
+    }
+    // Space pauses the beat (to look at one phase of the cycle), unless a
+    // control has the focus.
+    const typing = event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea');
+    if (event.code === 'Space' && !typing) {
+      event.preventDefault();
+      heartbeat.setPaused(!heartbeat.paused);
+    }
+  });
+
+  const labels = createLabels({
+    container: document.getElementById('labels'),
+    camera,
+    heart,
+    conduction,
+    onPick: (key) => select(key),
+  });
+
+  // --- Responsiveness -----------------------------------------------------------------
   function onResize() {
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -104,37 +199,59 @@ async function start(renderer) {
   window.addEventListener('resize', onResize);
   onResize();
 
-  function applyQuality(profile) {
+  // --- Quality ----------------------------------------------------------------------
+  let effects = {};
+  function applyQuality(profile, { keepGovernor = false } = {}) {
     quality = profile;
     maxPixelRatio = profile.maxPixelRatio;
-    post.bloom.enabled = profile.bloom;
-    post.setMsaa(profile.msaa);
-    shared.uMicroDetail.value = profile.microDetail;
-    lighting.setShadows(profile.shadows, profile.shadowMapSize);
+    effects = {
+      bloom: profile.bloom,
+      microDetail: profile.microDetail,
+      shadows: profile.shadows,
+      msaa: profile.msaa,
+      detailModel: profile.detailModel,
+    };
+    post.bloom.enabled = effects.bloom;
+    post.setMsaa(effects.msaa);
+    shared.uMicroDetail.value = effects.microDetail;
+    lighting.setShadows(effects.shadows, profile.shadowMapSize);
     onResize();
     status.setQuality(profile.name, profile.adaptive);
-    governor.restart();
+    if (!keepGovernor) governor.restart();
   }
 
   const governor = createFrameRateGovernor({
     onDowngrade(step, fps) {
       if (!quality.adaptive) return;
-      if (step === 'resolution') {
-        maxPixelRatio = Math.max(0.75, Math.min(window.devicePixelRatio, maxPixelRatio) - 0.35);
-        onResize();
-      } else if (step === 'bloom') {
-        post.bloom.enabled = false;
-      } else if (step === 'microDetail') {
-        shared.uMicroDetail.value *= 0.5;
-      } else if (step === 'shadows') {
-        lighting.setShadows(false);
-      } else if (step === 'msaa') {
-        post.setMsaa(0);
+      switch (step) {
+        case 'bloom':
+          effects.bloom = false;
+          post.bloom.enabled = false;
+          break;
+        case 'microDetail':
+          effects.microDetail *= 0.5;
+          shared.uMicroDetail.value = effects.microDetail;
+          break;
+        case 'resolution': {
+          const current = Math.min(window.devicePixelRatio, maxPixelRatio);
+          maxPixelRatio = Math.max(0.75, current - 0.35);
+          onResize();
+          break;
+        }
+        case 'shadows':
+          effects.shadows = false;
+          lighting.setShadows(false);
+          break;
+        case 'msaa':
+          effects.msaa = 0;
+          post.setMsaa(0);
+          break;
       }
-      console.info(`[heart] ${fps.toFixed(1)} fps -> reduced ${step}`);
+      console.info(`[heart] ${fps.toFixed(1)} fps -> reduced ${step} (pixel ratio ${Math.min(window.devicePixelRatio, maxPixelRatio).toFixed(2)})`);
     },
   });
 
+  // --- Interface ------------------------------------------------------------------
   const status = createPerformanceStatus(gpu);
   const vitals = createVitals();
   const panel = createControlsPanel({
@@ -142,8 +259,7 @@ async function start(renderer) {
     layers,
     onChange(key, value) {
       settings[key] = value;
-      if (key === 'bpm') heartbeat.setBpm(value);
-      if (key === 'autoRotate') controls.autoRotate = value;
+      applySetting[key]?.(value);
     },
     onLayer: applyLayer,
     onQuality: (choice) => applyQuality(profileFor(choice, gpu)),
@@ -152,29 +268,24 @@ async function start(renderer) {
   panel.setQualityChoice(quality.choice);
   setupHint(canvas);
   for (const [key, on] of Object.entries(layers)) applyLayer(key, on);
+  for (const [key, apply] of Object.entries(applySetting)) apply(settings[key]);
   applyQuality(quality);
 
-  // Space pauses the beat (to look at one phase), unless a control has focus.
-  document.addEventListener('keydown', (event) => {
-    const typing = event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea');
-    if (event.code === 'Space' && !typing) {
-      event.preventDefault();
-      heartbeat.setPaused(!heartbeat.paused);
-    }
-  });
+  // Debug / automated tests: read-only handle to the running app.
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
 
-  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, settings, layers, applyLayer };
-
-  // Compile the opaque and translucent variants up-front.
+  // Compile every shader variant up-front (opaque and translucent), so the
+  // first zoom does not stutter.
   heart.setTranslucent(true);
   await renderer.compileAsync(scene, camera);
   heart.setTranslucent(false);
   await renderer.compileAsync(scene, camera);
-  let translucentHold = 0;
 
+  // --- Animation loop -------------------------------------------------------------
   const clock = new THREE.Clock();
   const fpsMeter = { frames: 0, elapsed: 0 };
   const keyView = new THREE.Vector3();
+  let translucentHold = 0;
 
   function frame() {
     requestAnimationFrame(frame);
@@ -188,26 +299,33 @@ async function start(renderer) {
       fpsMeter.elapsed = 0;
     }
     const delta = Math.min(rawDelta, 0.1);
+
     cameraMotion.update(delta);
     controls.update(delta);
     camera.updateMatrixWorld();
 
+    const cycle = heartbeat.update(prefersReducedMotion ? delta * 0.6 : delta);
     const view = reveal.update(delta, camera, controls.target);
-    const distance = view.distance;
-    lighting.update(distance);
+    lighting.update(view.distance);
     status.setReveal(reveal.levelName);
+
     shared.uTime.value = clock.elapsedTime;
-    shared.uUserTransparency.value = settings.transparency;
     shared.uKeyLightView.value.copy(lighting.keyDirectionView(keyView));
 
+    shared.uUserTransparency.value = settings.transparency;
+
     // Translucent rendering only while something is see-through.
-    const fading = [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
-    translucentHold = view.progress > 1.9 || settings.transparency > 0.001 || fading ? 0.5 : translucentHold - delta;
+    const needsTranslucency =
+      view.progress > 1.9 || shared.uUserTransparency.value > 0.001 || Boolean(isolatedKey) || [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
+    translucentHold = needsTranslucency ? 0.5 : translucentHold - delta;
     heart.setTranslucent(translucentHold > 0);
-    lighting.setShadows(quality.shadows && view.progress < 1.8, quality.shadowMapSize);
-    const cycle = heartbeat.update(prefersReducedMotion ? delta * 0.6 : delta);
-    heart.update(delta, cycle, distance);
+    lighting.setShadows(effects.shadows && view.progress < 1.8, quality.shadowMapSize);
+
+    heart.update(delta, cycle, view.distance);
+    interaction.update();
+    labels.update(delta, cycle, view);
     vitals.update(delta, cycle);
+
     post.composer.render(delta);
   }
 
@@ -217,8 +335,9 @@ async function start(renderer) {
 }
 
 /**
- * Smooth camera reset, like the Black-Hole project: interpolating in
- * spherical coordinates so the camera travels on an arc.
+ * Smooth camera moves: reset to the home view (like the Black-Hole project,
+ * interpolating in spherical coordinates so the camera travels on an arc) and
+ * focus on a selected structure.
  */
 function createCameraMotion(camera, controls) {
   const fromTarget = new THREE.Vector3();
@@ -243,7 +362,21 @@ function createCameraMotion(camera, controls) {
 
   return {
     reset() {
-      begin(HOME_TARGET, homePosition(camera.aspect), 1.6);
+      const home = homePosition(camera.aspect);
+      begin(HOME_TARGET, home, 1.6);
+    },
+    /** Looks at `point` from the current direction, at a distance suited to its size. */
+    focus(point, key) {
+      if (!point) return;
+      const info = STRUCTURES[key];
+      const interior = ['valves', 'interior', 'chambers', 'conduction'].includes(info?.layer) || key === 'ivs' || key === 'ias';
+      const distance = interior ? 8.5 : info?.layer === 'greatVessels' ? 22 : 20;
+      const direction = offset.copy(camera.position).sub(controls.target).normalize();
+      const target = new THREE.Vector3().copy(point);
+      begin(target, target.clone().addScaledVector(direction, distance), 1.3);
+    },
+    get active() {
+      return elapsed >= 0;
     },
     update(delta) {
       if (elapsed < 0) return;
