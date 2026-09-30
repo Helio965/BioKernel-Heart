@@ -199,6 +199,9 @@ export async function createHeart({ shared, onProgress = () => {} }) {
   let hovered = null;
   let selected = null;
   let isolated = null;
+  // Global fade used by the opening animation (independent of the layers,
+  // so switching layers during the intro is never overridden).
+  let introFade = 1;
   function setHovered(key) {
     hovered = key;
   }
@@ -236,12 +239,12 @@ export async function createHeart({ shared, onProgress = () => {} }) {
       s.dimTarget = isolated && isolated !== s.key ? 1 : 0;
       s.dim += (s.dimTarget - s.dim) * k;
       const u = s.uniforms;
-      u.uLayerOpacity.value = s.layerOpacity;
+      u.uLayerOpacity.value = s.layerOpacity * introFade;
       u.uHighlight.value = s.highlight;
       u.uSelected.value += ((isSelected ? 1 : 0) - u.uSelected.value) * k;
       u.uDim.value = s.dim;
       u.uDetailFade.value = s.info.detail >= 3 ? 0.25 + 0.75 * smallBranches : 1;
-      const visible = s.layerOpacity > 0.003;
+      const visible = s.layerOpacity * introFade > 0.003;
       for (const mesh of s.meshes) {
         mesh.visible = visible;
         setInfluence(mesh, 'ventricularSystole', cycle.ventricular);
@@ -302,6 +305,18 @@ export async function createHeart({ shared, onProgress = () => {} }) {
     },
     setLayerVisible,
     layerState,
+    get introFade() {
+      return introFade;
+    },
+    set introFade(value) {
+      introFade = value;
+    },
+    /** True while a layer is cross-fading (needs translucent rendering). */
+    get fading() {
+      if (introFade < 0.997) return true;
+      for (const s of structures.values()) if (s.layerOpacity > 0.003 && s.layerOpacity < 0.997) return true;
+      return false;
+    },
     setHovered,
     setSelected,
     setIsolated,

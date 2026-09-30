@@ -64,16 +64,13 @@ export function createIntro({ heart, scene, count = 9000, duration = 2.6 }) {
   scene.add(points);
 
   let time = -1;
-  let revealed = false;
-  const hidden = new Map();
 
   function finish() {
     time = -1;
     points.visible = false;
     scene.remove(points);
     geometry.dispose();
-    for (const [structure, target] of hidden) structure.layerTarget = target;
-    hidden.clear();
+    heart.introFade = 1;
   }
 
   return {
@@ -81,12 +78,7 @@ export function createIntro({ heart, scene, count = 9000, duration = 2.6 }) {
       if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
       time = 0;
       points.visible = true;
-      revealed = false;
-      for (const s of heart.structures.values()) {
-        hidden.set(s, s.layerTarget);
-        s.layerOpacity = 0;
-        s.layerTarget = 0;
-      }
+      heart.introFade = 0;
       window.addEventListener('pointerdown', () => time >= 0 && finish(), { once: true });
     },
     update(delta) {
@@ -99,10 +91,8 @@ export function createIntro({ heart, scene, count = 9000, duration = 2.6 }) {
         for (let a = 0; a < 3; a++) positions[i * 3 + a] = starts[i * 3 + a] + (targets[i * 3 + a] - starts[i * 3 + a]) * e;
       }
       geometry.attributes.position.needsUpdate = true;
-      if (!revealed && u > 0.72) {
-        revealed = true;
-        for (const [structure, target] of hidden) structure.layerTarget = target;
-      }
+      // The anatomy fades in while the particles land on its surface.
+      heart.introFade = THREE.MathUtils.smoothstep(u, 0.62, 0.95);
       uniforms.uOpacity.value = u < 0.75 ? 1 : 1 - (u - 0.75) / 0.25;
       if (u >= 1) finish();
     },

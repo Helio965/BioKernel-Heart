@@ -130,7 +130,6 @@ async function start(renderer) {
   const applySetting = {
     bpm: (v) => heartbeat.setBpm(v),
     transparency: () => {}, // blended every frame with the see-through assist
-
     sound: (v) => sound.setEnabled(v),
     autoRotate: (v) => {
       controls.autoRotate = v;
@@ -369,8 +368,7 @@ async function start(renderer) {
     shared.uUserTransparency.value = Math.max(settings.transparency, assist * (1 - THREE.MathUtils.smoothstep(view.progress, 2, 3)));
 
     // Translucent rendering only while something is see-through.
-    const needsTranslucency =
-      view.progress > 1.9 || shared.uUserTransparency.value > 0.001 || Boolean(isolatedKey) || [...heart.structures.values()].some((s) => s.layerOpacity > 0.003 && s.layerOpacity < 0.997);
+    const needsTranslucency = view.progress > 1.9 || shared.uUserTransparency.value > 0.001 || Boolean(isolatedKey) || heart.fading;
     translucentHold = needsTranslucency ? 0.5 : translucentHold - delta;
     heart.setTranslucent(translucentHold > 0);
     lighting.setShadows(effects.shadows && view.progress < 1.8, quality.shadowMapSize);

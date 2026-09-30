@@ -19,6 +19,7 @@ export function createHeartSound() {
   let master = null;
   let noise = null;
   let enabled = false;
+  let scheduledCount = 0;
   const scheduled = new Map(); // "beat:name" -> audio time
 
   function ensureContext() {
@@ -97,6 +98,10 @@ export function createHeartSound() {
     get enabled() {
       return enabled;
     },
+    /** Number of heart sounds scheduled since the page opened (tests). */
+    get scheduledCount() {
+      return scheduledCount;
+    },
     setEnabled(on) {
       enabled = on;
       if (on) {
@@ -123,6 +128,7 @@ export function createHeartSound() {
         if (scheduled.has(id)) continue;
         const when = context.currentTime + wait;
         scheduled.set(id, when);
+        scheduledCount++;
         SOUNDS[name](when, L);
       }
       for (const [id, when] of scheduled) if (when < context.currentTime - 2) scheduled.delete(id);

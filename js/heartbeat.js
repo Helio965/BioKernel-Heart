@@ -248,8 +248,8 @@ export function createHeartbeat({ bpm = 72 } = {}) {
       phase += delta / timeline.T;
       let wrapped = false;
       if (phase >= 1) {
-        phase -= 1;
-        beat++;
+        beat += Math.floor(phase);
+        phase -= Math.floor(phase);
         wrapped = true;
         state.events.push('QRS');
       }
