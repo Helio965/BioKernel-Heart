@@ -16,6 +16,6 @@ Thumbs.db
 *.swp
 
 # Local test output
-screenshots/
+/screenshots/
 test-results/
 playwright-report/
