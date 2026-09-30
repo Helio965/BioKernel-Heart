@@ -14,6 +14,7 @@ import { createCoronaryFlow } from './coronary.js';
 import { createConductionSystem } from './conduction.js';
 import { createInteraction } from './interaction.js';
 import { createLabels } from './labels.js';
+import { createHeartSound } from './audio.js';
 import {
   createControlsPanel,
   createPerformanceStatus,
@@ -99,6 +100,7 @@ async function start(renderer) {
   const coronaryFlow = createCoronaryFlow({ data: heart.data.vessels.coronary, field: heart.field, count: quality.coronaryParticles });
   const conduction = createConductionSystem({ data: heart.data.conduction, field: heart.field, shared });
   scene.add(bloodFlow.object, coronaryFlow.object, conduction.group);
+  const sound = createHeartSound();
 
   // --- Settings -----------------------------------------------------------------
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -127,6 +129,7 @@ async function start(renderer) {
     bpm: (v) => heartbeat.setBpm(v),
     transparency: () => {}, // blended every frame with the see-through assist
 
+    sound: (v) => sound.setEnabled(v),
     autoRotate: (v) => {
       controls.autoRotate = v;
     },
@@ -294,7 +297,7 @@ async function start(renderer) {
   applyQuality(quality);
 
   // Debug / automated tests: read-only handle to the running app.
-  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, conduction, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, conduction, labels, sound, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
 
   // Compile every shader variant up-front (opaque and translucent), so the
   // first zoom does not stutter.
@@ -357,6 +360,7 @@ async function start(renderer) {
     bloodFlow.update(delta, cycle);
     coronaryFlow.update(delta, cycle);
     conduction.update(delta, cycle);
+    sound.update(heartbeat);
     interaction.update();
     labels.update(delta, cycle, view);
     vitals.update(delta, cycle);
