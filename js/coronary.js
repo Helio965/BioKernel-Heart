@@ -71,9 +71,16 @@ export function createCoronaryFlow({ data, field, count, seed = 97 }) {
   const geometry = new THREE.BufferGeometry();
   const positionAttribute = new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('position', positionAttribute);
-  geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
-  geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-  geometry.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1));
+  // A respawned particle may switch between an arterial and a venous route
+  // (red <-> blue), so colour, size and opacity are re-uploaded after respawns.
+  const styleAttributes = [
+    new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage),
+    new THREE.BufferAttribute(sizes, 1).setUsage(THREE.DynamicDrawUsage),
+    new THREE.BufferAttribute(alphas, 1).setUsage(THREE.DynamicDrawUsage),
+  ];
+  geometry.setAttribute('aColor', styleAttributes[0]);
+  geometry.setAttribute('aSize', styleAttributes[1]);
+  geometry.setAttribute('aAlpha', styleAttributes[2]);
 
   const uniforms = { uPixelRatio: { value: 1 }, uScale: { value: 900 }, uOpacity: { value: 0 } };
   const material = new THREE.ShaderMaterial({
@@ -116,12 +123,14 @@ export function createCoronaryFlow({ data, field, count, seed = 97 }) {
       points.visible = opacity > 0.01;
       if (!points.visible) return;
       uniforms.uOpacity.value = opacity;
+      let respawned = false;
       for (let i = 0; i < visibleCount; i++) {
         const r = routes[route[i]];
         const flow = r.venous ? cycle.coronaryVenous : r.left ? cycle.coronaryLeft : cycle.coronaryRight;
         s[i] += SPEED * flow * jitter[i] * delta;
         if (s[i] >= r.path.total) {
           spawn(i, false);
+          respawned = true;
           continue;
         }
         // Venous routes are stored root -> branch: blood flows the other way.
@@ -136,6 +145,13 @@ export function createCoronaryFlow({ data, field, count, seed = 97 }) {
       positionAttribute.needsUpdate = true;
       positionAttribute.clearUpdateRanges();
       positionAttribute.addUpdateRange(0, visibleCount * 3);
+      if (respawned) {
+        for (const attribute of styleAttributes) {
+          attribute.needsUpdate = true;
+          attribute.clearUpdateRanges();
+          attribute.addUpdateRange(0, visibleCount * attribute.itemSize);
+        }
+      }
     },
   };
 }

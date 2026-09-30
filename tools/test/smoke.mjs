@@ -195,6 +195,9 @@ const flow = await q(`(() => { const f = window.__heart.bloodFlow.object; const 
 await until(`window.__heart.bloodFlow.object.geometry.attributes.position.array[0] !== ${flow.sample[0]}`, 60000);
 const flow2 = await q(`Array.from(window.__heart.bloodFlow.object.geometry.attributes.position.array.slice(0, 6))`);
 check('blood flow visible and moving', flow.visible && flow.sample.some((v, i) => Math.abs(v - flow2[i]) > 1e-4));
+// A particle leaving through the aorta re-enters through a vena cava (red ->
+// blue): its new colour must reach the GPU.
+check('re-entering particles change colour', await until('window.__heart.bloodFlow.object.geometry.attributes.aColor.version > 0', 120000));
 check('legend shows oxygenation colours', !(await q('document.getElementById("legend").hidden')));
 await layerToggle('bloodFlow', false);
 
