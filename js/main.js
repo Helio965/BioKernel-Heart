@@ -9,6 +9,8 @@ import { createSharedUniforms } from './materials.js';
 import { createHeart } from './heart.js';
 import { createHeartbeat } from './heartbeat.js';
 import { createCameraReveal } from './cameraReveal.js';
+import { createBloodFlow } from './bloodFlow.js';
+import { createCoronaryFlow } from './coronary.js';
 import { createInteraction } from './interaction.js';
 import { createLabels } from './labels.js';
 import {
@@ -16,6 +18,7 @@ import {
   createPerformanceStatus,
   createVitals,
   createInfoCard,
+  createLegend,
   createLoader,
   setupHint,
 } from './ui.js';
@@ -59,6 +62,7 @@ async function start(renderer) {
   const gpu = describeGpu(renderer);
   let quality = detectQualityProfile(gpu);
   let maxPixelRatio = quality.maxPixelRatio;
+  let particleScale = 1;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, 0.05, 500);
@@ -90,6 +94,9 @@ async function start(renderer) {
 
   const heartbeat = createHeartbeat({ bpm: 72 });
   const reveal = createCameraReveal(shared);
+  const bloodFlow = createBloodFlow({ data: heart.data.vessels, field: heart.field, count: quality.flowParticles });
+  const coronaryFlow = createCoronaryFlow({ data: heart.data.vessels.coronary, field: heart.field, count: quality.coronaryParticles });
+  scene.add(bloodFlow.object, coronaryFlow.object);
   // The conduction system is added later; interaction and labels ask it for
   // nothing yet.
   const conduction = { group: { visible: false }, pickables: () => [], setHovered() {}, setSelected() {}, setIsolated() {} };
@@ -106,11 +113,14 @@ async function start(renderer) {
 
   function applyLayer(key, on) {
     layers[key] = on;
-    if (key === 'labels') labels.setEnabled(on);
+    if (key === 'bloodFlow') bloodFlow.setVisible(on);
+    else if (key === 'coronaryFlow') coronaryFlow.setVisible(on);
+    else if (key === 'labels') labels.setEnabled(on);
     else if (key === 'interior') {
       reveal.setEnabled(on);
       heart.setLayerVisible('interior', on);
     } else heart.setLayerVisible(key, on);
+    legend.update({ flow: layers.bloodFlow || layers.coronaryFlow, conduction: false });
   }
 
   const applySetting = {
@@ -195,6 +205,8 @@ async function start(renderer) {
     renderer.setSize(width, height, false);
     post.composer.setPixelRatio(pixelRatio);
     post.composer.setSize(width, height);
+    bloodFlow.setPixelRatio(pixelRatio);
+    coronaryFlow.setPixelRatio(pixelRatio);
   }
   window.addEventListener('resize', onResize);
   onResize();
@@ -204,6 +216,7 @@ async function start(renderer) {
   function applyQuality(profile, { keepGovernor = false } = {}) {
     quality = profile;
     maxPixelRatio = profile.maxPixelRatio;
+    particleScale = 1;
     effects = {
       bloom: profile.bloom,
       microDetail: profile.microDetail,
@@ -215,6 +228,8 @@ async function start(renderer) {
     post.setMsaa(effects.msaa);
     shared.uMicroDetail.value = effects.microDetail;
     lighting.setShadows(effects.shadows, profile.shadowMapSize);
+    bloodFlow.setCount(profile.flowParticles);
+    coronaryFlow.setCount(profile.coronaryParticles);
     onResize();
     status.setQuality(profile.name, profile.adaptive);
     if (!keepGovernor) governor.restart();
@@ -238,6 +253,11 @@ async function start(renderer) {
           onResize();
           break;
         }
+        case 'particles':
+          particleScale *= 0.6;
+          bloodFlow.setCount(Math.round(quality.flowParticles * particleScale));
+          coronaryFlow.setCount(Math.round(quality.coronaryParticles * particleScale));
+          break;
         case 'shadows':
           effects.shadows = false;
           lighting.setShadows(false);
@@ -254,6 +274,7 @@ async function start(renderer) {
   // --- Interface ------------------------------------------------------------------
   const status = createPerformanceStatus(gpu);
   const vitals = createVitals();
+  const legend = createLegend();
   const panel = createControlsPanel({
     values: settings,
     layers,
@@ -272,7 +293,7 @@ async function start(renderer) {
   applyQuality(quality);
 
   // Debug / automated tests: read-only handle to the running app.
-  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, labels, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
 
   // Compile every shader variant up-front (opaque and translucent), so the
   // first zoom does not stutter.
@@ -286,6 +307,7 @@ async function start(renderer) {
   const fpsMeter = { frames: 0, elapsed: 0 };
   const keyView = new THREE.Vector3();
   let translucentHold = 0;
+  let assist = 0;
 
   function frame() {
     requestAnimationFrame(frame);
@@ -312,7 +334,12 @@ async function start(renderer) {
     shared.uTime.value = clock.elapsedTime;
     shared.uKeyLightView.value.copy(lighting.keyDirectionView(keyView));
 
-    shared.uUserTransparency.value = settings.transparency;
+    // Blood flow and the conduction system live inside the heart: while one of
+    // them is on and the camera is outside, the walls become see-through by
+    // themselves (the transparency slider can go further).
+    const wantsAssist = layers.bloodFlow || layers.coronaryFlow ? 0.62 : 0;
+    assist += (wantsAssist - assist) * (1 - Math.exp(-delta / 0.35));
+    shared.uUserTransparency.value = Math.max(settings.transparency, assist * (1 - THREE.MathUtils.smoothstep(view.progress, 2, 3)));
 
     // Translucent rendering only while something is see-through.
     const needsTranslucency =
@@ -322,6 +349,8 @@ async function start(renderer) {
     lighting.setShadows(effects.shadows && view.progress < 1.8, quality.shadowMapSize);
 
     heart.update(delta, cycle, view.distance);
+    bloodFlow.update(delta, cycle);
+    coronaryFlow.update(delta, cycle);
     interaction.update();
     labels.update(delta, cycle, view);
     vitals.update(delta, cycle);
