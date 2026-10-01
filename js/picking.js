@@ -47,8 +47,9 @@ export function createPicker() {
   /**
    * Like raycaster.intersectObjects(objects, false): hits sorted by distance,
    * each { distance, point, object, face: { a, b, c }, faceIndex }.
+   * With `rest: true` the meshes are taken at rest (without the beat).
    */
-  function intersect(raycaster, objects) {
+  function intersect(raycaster, objects, { rest = false } = {}) {
     const hits = [];
     const ray = raycaster.ray;
     for (const mesh of objects) {
@@ -60,7 +61,8 @@ export function createPicker() {
       const { bvh, reach, relative } = prepare(geometry);
       let margin = relative ? 1e-5 : Infinity; // absolute targets: no safe bound
       const weights = mesh.morphTargetInfluences;
-      if (weights) for (let k = 0; k < reach.length; k++) margin += Math.abs(weights[k] ?? 0) * reach[k];
+      if (rest) margin = 1e-5;
+      else if (weights) for (let k = 0; k < reach.length; k++) margin += Math.abs(weights[k] ?? 0) * reach[k];
       inverse.copy(mesh.matrixWorld).invert();
       localRay.copy(ray).applyMatrix4(inverse);
       // raycaster.far in the mesh's local units (boxes beyond it are skipped).
@@ -68,7 +70,9 @@ export function createPicker() {
         ? farPoint.copy(ray.direction).multiplyScalar(raycaster.far).add(ray.origin).applyMatrix4(inverse).distanceTo(localRay.origin)
         : Infinity;
       const index = geometry.index;
+      const position = geometry.attributes.position;
       const vertex = (i) => (index ? index.getX(i) : i);
+      const vertexPosition = rest ? (i, target) => target.fromBufferAttribute(position, i) : (i, target) => mesh.getVertexPosition(i, target);
       bvh.shapecast({
         intersectsBounds: (bounds) => {
           if (margin === Infinity) return true;
@@ -79,9 +83,9 @@ export function createPicker() {
           const a = vertex(face * 3);
           const b = vertex(face * 3 + 1);
           const c = vertex(face * 3 + 2);
-          mesh.getVertexPosition(a, va);
-          mesh.getVertexPosition(b, vb);
-          mesh.getVertexPosition(c, vc);
+          vertexPosition(a, va);
+          vertexPosition(b, vb);
+          vertexPosition(c, vc);
           if (!localRay.intersectTriangle(va, vb, vc, false, point)) return false;
           point.applyMatrix4(mesh.matrixWorld);
           const distance = ray.origin.distanceTo(point);

@@ -61,8 +61,8 @@ function epicardialFat(hit) {
  * (almost) transparent are skipped, and the epicardium, a thin film, only
  * counts where it carries fat.
  */
-export function firstVisibleHit(picker, raycaster, objects, shared) {
-  for (const hit of picker.intersect(raycaster, objects)) {
+export function firstVisibleHit(picker, raycaster, objects, shared, options) {
+  for (const hit of picker.intersect(raycaster, objects, options)) {
     const structure = hit.object.userData.structure;
     if (structure) {
       if (surfaceAlpha(hit.point, structure, shared) < 0.35) continue;
@@ -73,9 +73,15 @@ export function firstVisibleHit(picker, raycaster, objects, shared) {
   return null;
 }
 
-export function createInteraction({ canvas, camera, heart, conduction, shared, picker, onHover, onSelect, onFocusPoint }) {
+/**
+ * `labelAt(clientX, clientY)` returns the structure whose 3D label is under
+ * the pointer (labels do not capture the mouse, so a drag that starts on one
+ * still rotates the heart; a click or a hover on one is resolved here).
+ */
+export function createInteraction({ canvas, camera, heart, conduction, shared, picker, labelAt = () => null, onHover, onSelect, onFocusPoint }) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+  const client = { x: 0, y: 0 };
   let pointerInside = false;
   let dirty = false;
   let lastPick = 0;
@@ -83,6 +89,8 @@ export function createInteraction({ canvas, camera, heart, conduction, shared, p
   let down = null;
 
   function setPointer(event) {
+    client.x = event.clientX;
+    client.y = event.clientY;
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -110,11 +118,21 @@ export function createInteraction({ canvas, camera, heart, conduction, shared, p
     down = null;
     if (moved > 6 || !quick) return;
     setPointer(event);
+    const label = labelAt(client.x, client.y);
+    if (label) {
+      onSelect(label, null);
+      return;
+    }
     const hit = pick();
     onSelect(hit?.key ?? null, hit);
   });
   canvas.addEventListener('dblclick', (event) => {
     setPointer(event);
+    const label = labelAt(client.x, client.y);
+    if (label) {
+      onFocusPoint?.(null, label);
+      return;
+    }
     const hit = pick();
     if (hit) onFocusPoint?.(hit.point, hit.key);
   });
@@ -134,8 +152,7 @@ export function createInteraction({ canvas, camera, heart, conduction, shared, p
       if (down) return; // dragging the camera
       dirty = false;
       lastPick = now;
-      const hit = pick();
-      const key = hit?.key ?? null;
+      const key = labelAt(client.x, client.y) ?? pick()?.key ?? null;
       if (key !== hovered) {
         hovered = key;
         onHover(key);

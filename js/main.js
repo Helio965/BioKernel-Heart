@@ -86,6 +86,8 @@ async function start(renderer) {
   controls.target.copy(HOME_TARGET);
   controls.update();
   const cameraMotion = createCameraMotion(camera, controls);
+  // Grabbing the camera stops any reset/focus flight, so a drag always rotates.
+  controls.addEventListener('start', () => cameraMotion.cancel());
 
   const lighting = createLighting(renderer, scene, camera);
   const post = createComposer(renderer, scene, camera, quality);
@@ -168,7 +170,8 @@ async function start(renderer) {
     conduction,
     shared,
     picker,
-    onFocusPoint: (point, key) => cameraMotion.focus(point, key),
+    labelAt: (x, y) => labels.labelAt(x, y),
+    onFocusPoint: (point, key) => cameraMotion.focus(point ?? labels.anchorPoint(key, heartbeat.state), key),
     onHover(key) {
       heart.setHovered(key);
       conduction.setHovered(key);
@@ -200,7 +203,6 @@ async function start(renderer) {
     conduction,
     shared,
     picker,
-    onPick: (key) => select(key),
   });
 
   // --- Responsiveness -----------------------------------------------------------------
@@ -443,6 +445,10 @@ function createCameraMotion(camera, controls) {
     },
     get active() {
       return elapsed >= 0;
+    },
+    /** Stops a reset/focus flight (the user took the camera). */
+    cancel() {
+      elapsed = -1;
     },
     update(delta) {
       if (elapsed < 0) return;
