@@ -80,8 +80,13 @@ As imagens foram capturadas do próprio projeto (Chromium, perfil `high`).
 ## Funcionalidades
 
 - **Coração anatômico real** (BodyParts3D, derivado de ressonância magnética),
-  com materiais PBR próprios para miocárdio, átrios, epicárdio com gordura,
-  artérias, veias, grandes vasos, valvas e cordas tendíneas.
+  com materiais PBR próprios para miocárdio, átrios, epicárdio, artérias,
+  veias, grandes vasos, valvas e cordas tendíneas.
+- **Gordura epicárdica com volume**, distribuída como num coração real
+  (Ndrepepa 2020): mais grossa nos sulcos atrioventricular e interventriculares
+  e ao longo dos troncos coronarianos, uma camada fina sobre parte da parede
+  livre do VD e dos átrios, em lóbulos arredondados; as coronárias correm num
+  leito de gordura, visíveis por cima dele.
 - **Batimento fisiológico contínuo**: enchimento rápido, diástase, sístole
   atrial, contração isovolumétrica, ejeção e relaxamento isovolumétrico, com
   encurtamento longitudinal (o plano AV desce), contração radial com
@@ -111,7 +116,10 @@ As imagens foram capturadas do próprio projeto (Chromium, perfil `high`).
   ponto.
 - **Rótulos 3D** que acompanham o batimento, escolhidos por prioridade, zoom e
   visibilidade real (não rotulam o que está escondido atrás de outra estrutura)
-  e que não se sobrepõem.
+  e que não se sobrepõem. A escolha é feita no coração em repouso, então o
+  batimento nunca faz um rótulo sumir e voltar; os rótulos não capturam o
+  mouse (arrastar em cima deles gira o coração normalmente) e um clique num
+  rótulo seleciona a estrutura.
 - **Som do coração** sintetizado (B1 "tum" e B2 "tá") ligado ao ciclo; muda o
   ritmo com o BPM sem acelerar um arquivo de áudio.
 - **ECG simplificado** e nome da fase atual no HUD; **espaço** pausa o
@@ -432,15 +440,15 @@ nenhum arquivo de áudio é acelerado.
 A qualidade é escolhida pela GPU que o navegador realmente está usando (igual
 ao Black-Hole) e ajustada em tempo real por um governador de FPS.
 
-| Perfil | Usado em | Resolução máx. | Anti-aliasing | Sombras | Bloom | Modelo | Relevo procedural | Partículas (fluxo / coronárias) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ultra` | GPU dedicada | 2× | MSAA 4× | 2048 | sim | detalhado (488 mil vértices) | 100% | 9000 / 3200 |
-| `high` | GPU desconhecida | 1,75× | MSAA 4× | 1024 | sim | detalhado | 85% | 6000 / 2200 |
-| `medium` | GPU integrada | 1,25× | — | — | sim | base (109 mil vértices) | 55% | 3600 / 1400 |
-| `low` | celular, CPU | 1× | — | — | — | base | — | 1800 / 800 |
+| Perfil | Usado em | Resolução máx. | Anti-aliasing | Sombras | Oclusão ambiente (GTAO) | Bloom | Modelo | Relevo procedural | Partículas (fluxo / coronárias) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ultra` | GPU dedicada | 2× | MSAA 4× | 2048 | sim | sim | detalhado (488 mil vértices) | 100% | 9000 / 3200 |
+| `high` | GPU desconhecida | 1,75× | MSAA 4× | 1024 | sim | sim | detalhado | 85% | 6000 / 2200 |
+| `medium` | GPU integrada | 1,25× | — | — | — | sim | base (109 mil vértices) | 55% | 3600 / 1400 |
+| `low` | celular, CPU | 1× | — | — | — | — | base | — | 1800 / 800 |
 
 Todos os perfis mostram **a mesma anatomia**: nenhuma estrutura é removida. Se o
-FPS médio cai, o governador reduz, nesta ordem: efeitos (bloom) → relevo
+FPS médio cai, o governador reduz, nesta ordem: oclusão ambiente → bloom → relevo
 procedural → lobos extras dos materiais → resolução → partículas → sombras →
 anti-aliasing → resolução → partículas → nível de detalhe do modelo. Os
 ajustes aparecem no console (`console.info`) e o perfil atual no HUD.
@@ -448,7 +456,7 @@ ajustes aparecem no console (`console.info`) e o perfil atual no HUD.
 Outras otimizações:
 
 - deformação por *blend shapes* na GPU (nenhum cálculo por vértice na CPU);
-- modelo quantizado e comprimido (meshopt): 4,0 MB o base, 15,1 MB o detalhado;
+- modelo quantizado e comprimido (meshopt): 4,0 MB o base, 15,0 MB o detalhado;
 - todos os tecidos compilam para poucos programas de shader; as variantes
   opaca e translúcida são pré-compiladas (sem travada no primeiro zoom);
 - renderização translúcida e sombras só quando necessárias;
@@ -518,7 +526,8 @@ Detalhes completos em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Resumo:
    (Taubin), converte para centímetros num referencial centrado no coração,
    segmenta a parede ventricular em VE, VD e septo (e os átrios em AE, AD e
    septo interatrial) pela distância às cavidades, calcula por vértice
-   endocárdio, gordura epicárdica, tempo de ativação elétrica e oclusão
+   endocárdio, gordura epicárdica (quantidade por região, transformada em
+   volume com lóbulos na película do epicárdio), tempo de ativação elétrica e oclusão
    ambiente (20 raios por vértice), separa folhetos e cordas tendíneas,
    gera os *blend shapes* (sístole ventricular, sístole atrial, valva meio
    aberta, valva aberta, distensão arterial), traça linhas centrais dos vasos,
@@ -531,8 +540,9 @@ Detalhes completos em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Resumo:
    úmido (clearcoat e sheen), revelação por aproximação, onda elétrica e
    destaque de seleção. Iluminação: ambiente PMREM, luz principal com sombra e
    contraluz presas à câmera, luz de área fixa (lâmpada cirúrgica), hemisfério.
-   Pós: `RenderPass` → `UnrealBloomPass` → `OutputPass` em buffer HDR com MSAA,
-   tone mapping ACES.
+   Pós: `RenderPass` → `GTAOPass` (oclusão ambiente em tela: sombras de contato
+   entre vasos, gordura e músculo; só na vista externa, quando tudo é opaco) →
+   `UnrealBloomPass` → `OutputPass` em buffer HDR com MSAA, tone mapping ACES.
 3. **Tempo real** (`js/main.js`): a cada frame o relógio cardíaco
    (`js/heartbeat.js`) produz o estado do ciclo; os pesos dos *blend shapes*,
    as valvas, as partículas, a onda elétrica, os rótulos, o ECG e o som leem

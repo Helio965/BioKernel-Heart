@@ -29,6 +29,8 @@ estrutura.
 | Didenko M, Harutyunyan K, Scharf C, et al. *Coronary sinus and cardiac venous anatomy for cardiac resynchronization therapy: A clinician's view.* **Indian Pacing and Electrophysiology Journal** 2026. [PMC13329930](https://pmc.ncbi.nlm.nih.gov/articles/PMC13329930/) | seio coronário no sulco AV inferior (25–50 mm, 6–12 mm), óstio no AD perto da cava inferior, valva de Tebésio; veia cardíaca magna vinda do sulco interventricular anterior, valva de Vieussens; veia cardíaca média no sulco interventricular inferior; pequenas veias no sulco AV direito |
 | Duncker DJ, Koller A, Merkus D, Canty JM Jr. *Regulation of Coronary Blood Flow in Health and Ischemic Heart Disease.* **Progress in Cardiovascular Diseases** 2015;57(5):409–422. doi:[10.1016/j.pcad.2014.12.002](https://doi.org/10.1016/j.pcad.2014.12.002) | a contração sistólica comprime os microvasos intramiocárdicos, **dificultando a entrada arterial coronariana e aumentando a saída venosa**; na diástole o fluxo arterial aumenta (fluxo coronariano esquerdo predominantemente diastólico em `js/heartbeat.js`/`js/coronary.js`) |
 | Mitsuhashi N, Fujieda K, Tamura T, Kawamoto S, Takagi T, Okubo K. *BodyParts3D: 3D structure database for anatomical concepts.* **Nucleic Acids Research** 2009;37:D782–D785. doi:[10.1093/nar/gkn613](https://doi.org/10.1093/nar/gkn613) | origem do modelo (RM de voluntário humano, refinamento por ilustradores médicos, conceitos FMA) |
+| Ndrepepa G. *Epicardial adipose tissue: An anatomic component of obesity & metabolic syndrome in close proximity to myocardium & coronary arteries.* **Indian Journal of Medical Research** 2020. [PMC7602928](https://pmc.ncbi.nlm.nih.gov/articles/PMC7602928) | gordura epicárdica entre o miocárdio e o pericárdio visceral, cobrindo até **80%** da superfície; **10–14 mm** nos sulcos atrioventricular e interventriculares, **5–7 mm** sobre a parede livre do VD, menos sobre átrios e ápice do VE; em contato direto com as coronárias epicárdicas (distribuição e volume da gordura em `tools/model-build/build.mjs`) |
+| University of Utah, WebPath — *Normal heart, gross* <https://webpath.med.utah.edu/CVHTML/CV001.html>; PathologyOutlines — *Heart histology* <https://www.pathologyoutlines.com/topic/hearthistology.html> | aparência do coração normal: epicárdio **liso e brilhante** (película úmida e translúcida), gordura epicárdica presente, miocárdio **castanho-avermelhado a vermelho**, DA descendo da raiz da aorta até o ápice (cores e brilho dos materiais em `js/materials.js`) |
 
 ## Bases de modelos consultadas
 
@@ -48,6 +50,7 @@ estrutura.
 | sistema de condução e tempos de ativação (`tools/model-build/lib/conduction.mjs`, `js/conduction.js`) | OpenStax 19.2, NHLBI |
 | fluxo sanguíneo (`js/bloodFlow.js`) | OpenStax 19.1/19.3, NHLBI |
 | fluxo coronariano (`js/coronary.js`) | Duncker 2015, Kesieme 2025, Didenko 2026 |
+| aparência dos tecidos e gordura epicárdica (`js/materials.js`, `js/shaders.js`, película do epicárdio no pipeline) | Ndrepepa 2020, WebPath, PathologyOutlines |
 | deformação (`js/cardiacField.js`) | OpenStax 19.2/19.3 (contração do ápice para a base, volumes), valores de encurtamento e torção dentro das faixas fisiológicas usuais |
 
 ## Limites conhecidos (também no README)

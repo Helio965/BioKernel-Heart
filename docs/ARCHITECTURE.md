@@ -61,6 +61,16 @@ Foram avaliados:
 
 Foi escolhido o BodyParts3D (detalhes e licença em `MODEL_LICENSE.md`).
 
+Avaliado e não usado: o pacote **BodyParts3D 3.0 com redução de 95%** (547 MB,
+no mesmo arquivo público). A "parede do coração" (FMA7274) ali tem ~7× mais
+vértices que as paredes da versão 4.0 e, deslocada de (0; −0,21; −10,21) mm
+(alinhamento medido por ICP), coincide com elas (distância mediana 0,13 mm, 90%
+abaixo de 0,8 mm): é a mesma anatomia. Comparando as duas lado a lado, o ganho
+é pequeno — um pouco mais de relevo nas trabéculas — e a malha traz estrias
+das fatias de 2 mm da ressonância e bordas serrilhadas; as outras peças (aorta,
+valvas) foram remodeladas na 4.0 e não coincidem. Por isso o detalhe do nível
+"detalhado" continua vindo da subdivisão de Loop da versão 4.0.
+
 ### Pipeline (`tools/model-build/`)
 
 Roda uma vez, offline; o resultado fica em `assets/models/` e o app não precisa
@@ -87,9 +97,16 @@ de npm.
    septo interventricular, e as paredes atriais em átrios e septo interatrial,
    pela distância a cada cavidade (a superfície das cavidades coincide com o
    endocárdio no BodyParts3D: 7 300 vértices a < 0,5 mm);
-5. dados por vértice (`_TISSUE`, 4 bytes): endocárdio, gordura epicárdica
-   (nos sulcos, ao redor dos vasos), tempo de ativação elétrica e oclusão
-   ambiente pré-calculada (20 raios por vértice, three-mesh-bvh);
+5. dados por vértice (`_TISSUE`, 4 bytes): endocárdio, gordura epicárdica,
+   tempo de ativação elétrica e oclusão ambiente pré-calculada (20 raios por
+   vértice, three-mesh-bvh). A gordura segue a distribuição de Ndrepepa (2020):
+   faixa no sulco atrioventricular, leito largo ao redor dos troncos
+   coronarianos (sulcos interventriculares), borda estreita ao longo dos ramos,
+   camada fina em parte da parede livre do VD e dos átrios. A película do
+   epicárdio transforma essa quantidade em volume: é deslocada para fora até
+   1,6 mm (os sulcos reais têm 10–14 mm; reduzido para as coronárias
+   continuarem visíveis), em lóbulos de ~3 mm (ruído celular), sem subir sobre
+   os vasos — eles correm num leito de gordura;
 6. **valvas**: o anel AV é encontrado em coordenadas polares (ponto mais atrial
    e periférico de cada setor), a distância geodésica anel→ancoragem das cordas
    separa folheto e cordas tendíneas; a abertura é uma rotação em torno da
@@ -222,6 +239,17 @@ js/gpu.js, js/quality.js, js/random.js   (Black-Hole)
   descartados. Hover limitado a ~20 Hz; os rótulos usam o mesmo teste (raios
   dentro de ~1,5 ms por frame, resultados guardados por 0,4 s) para não
   rotular o que está escondido.
+- Rótulos: todas as decisões (quais aparecem, oclusão — raio contra o coração
+  em repouso —, orientação para a câmera, desobstrução, lado para onde apontam)
+  são tomadas com as âncoras em repouso, então dependem só da câmera; o
+  batimento apenas os move. Um rótulo aparece depois de 0,18 s e some depois
+  de 0,45 s de decisão estável. Os rótulos não recebem eventos do mouse (um
+  arraste começado sobre eles gira o coração); o canvas resolve clique e hover
+  sobre eles por um teste de retângulo (`labels.labelAt`).
+- Oclusão ambiente em tela (GTAO, perfis ultra/high) só na vista externa e
+  com tudo opaco: é calculada da profundidade da primeira superfície, o que
+  estaria errado atrás de uma parede translúcida. É o primeiro efeito que o
+  governador desliga.
 - Perfis ultra/high/medium/low (resolução, MSAA, sombras, bloom, relevo
   procedural, lobos extras do material, partículas, nível de detalhe) e
   governador de FPS que reduz nessa ordem, sem nunca remover anatomia.

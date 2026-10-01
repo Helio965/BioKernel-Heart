@@ -185,6 +185,13 @@ export const tissueFragmentPars = /* glsl */ `
     return normalize(abs(fDet) * surfNorm - vGrad);
   }
 
+  // How much of the surface the epicardial fat covers: its border is
+  // irregular and lobulated, not a smooth contour line.
+  float fatCoverage(vec3 p, float fat) {
+    float edge = snoise(p * 4.2) * 0.55 + snoise(p * 10.5) * 0.3;
+    return smoothstep(0.14, 0.58, fat + edge * 0.16 * (1.0 - fat));
+  }
+
   // Muscle fibres run in helices around the long axis of the heart.
   vec3 fiberDirection(vec3 p, float endo) {
     vec3 q = p - uApex;
@@ -208,9 +215,10 @@ export const tissueFragmentPars = /* glsl */ `
       return mix(fibres, trabeculae, endo);
     }
     if (kind < 1.5) {
-      // Epicardial fat: lobules.
-      float lobes = 1.0 - abs(snoise(p * 5.5));
-      return lobes * lobes * 0.9 * fat + snoise(p * 16.0) * 0.18 * detail;
+      // Epicardial fat: the lobules are real geometry (model pipeline); this
+      // adds the finer, softer relief of the fat cells under the wet film.
+      float lobes = 1.0 - abs(snoise(p * 9.0));
+      return (lobes * lobes * 0.45 + snoise(p * 21.0) * 0.08 * detail) * fat;
     }
     if (kind < 2.5) {
       // Vessels: fine longitudinal texture.
@@ -236,9 +244,12 @@ export const tissueColorChunk = /* glsl */ `
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.28, 1.02, 1.05) + vec3(0.03, 0.0, 0.01), vTissue.x * 0.6);
     } else if (kind < 1.5) {
       // Epicardium: transparent glossy film, yellow fat in the sulci.
-      float fat = smoothstep(0.08, 0.7, vTissue.y);
-      // Linear-space colours of epicardial fat (yellow to orange-yellow).
-      vec3 fatColor = mix(vec3(0.56, 0.3, 0.07), vec3(0.7, 0.45, 0.13), snoise(vRestPos * 7.0) * 0.5 + 0.5);
+      float fat = fatCoverage(vRestPos, vTissue.y);
+      // Linear-space colours of epicardial fat: creamy yellow, a little more
+      // orange where it is thin over the muscle, paler in the thick lobules.
+      float tone = snoise(vRestPos * 6.0) * 0.5 + 0.5;
+      vec3 fatColor = mix(vec3(0.7, 0.45, 0.1), vec3(0.85, 0.63, 0.21), tone);
+      fatColor = mix(fatColor * vec3(0.95, 0.72, 0.62), fatColor, smoothstep(0.25, 0.85, vTissue.y));
       diffuseColor.rgb = mix(diffuseColor.rgb, fatColor, fat);
     }
     if (uElectrical > 0.0) diffuseColor.rgb *= mix(1.0, 0.42, uElectrical);
@@ -259,7 +270,7 @@ export const tissueAlphaChunk = /* glsl */ `
     alpha = max(alpha, fade * fresnel * uRimAlpha * uLayerOpacity * uDetailFade * (1.0 - uDim));
     if (uTissueKind > 0.5 && uTissueKind < 1.5) {
       // Epicardium: the film is only visible at grazing angles; fat is opaque.
-      float fat = smoothstep(0.08, 0.7, vTissue.y);
+      float fat = fatCoverage(vRestPos, vTissue.y);
       float film = 0.1 + fresnel * 0.45;
       alpha *= mix(film, 0.94, fat) * (1.0 - 0.55 * uVesselGlow * fat);
     }
@@ -273,7 +284,15 @@ export const tissueAlphaChunk = /* glsl */ `
 `;
 
 export const tissueRoughnessChunk = /* glsl */ `
-  roughnessFactor = clamp(roughnessFactor * (1.0 - 0.25 * vTissue.x) + (uTissueKind > 0.5 && uTissueKind < 1.5 ? 0.12 * vTissue.y : 0.0), 0.04, 1.0);
+  {
+    // Wet tissue is not uniformly glossy: patches of moisture break up the
+    // highlights (otherwise the surface looks like varnished plastic).
+    float wet = snoise(vRestPos * 2.1 + 7.3) * 0.5 + 0.5;
+    wet = mix(wet, snoise(vRestPos * 8.5) * 0.5 + 0.5, 0.3);
+    float kindWet = uTissueKind < 1.5 ? 1.0 : 0.55;
+    roughnessFactor *= mix(1.0, 0.7 + 0.65 * wet, kindWet);
+    roughnessFactor = clamp(roughnessFactor * (1.0 - 0.25 * vTissue.x) + (uTissueKind > 0.5 && uTissueKind < 1.5 ? 0.1 * vTissue.y : 0.0), 0.04, 1.0);
+  }
 `;
 
 export const tissueNormalChunk = /* glsl */ `

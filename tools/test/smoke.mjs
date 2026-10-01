@@ -252,6 +252,50 @@ const backLabels = await q(`[...document.querySelectorAll('.label.is-visible')].
 check('hidden structures are not labelled', backLabels.length > 0 && !backLabels.includes('Tronco da coronária esquerda'), backLabels.join(', '));
 await view(40);
 
+// The beat moves the labels but never switches them on and off.
+const frames = (n) => q(`new Promise((resolve) => { let k = ${n}; const step = () => (--k <= 0 ? resolve(true) : requestAnimationFrame(step)); requestAnimationFrame(step); })`);
+const shownLabels = () => q(`window.__heart.labels.inspect().filter((l) => l.visible).map((l) => l.key).sort().join(', ')`);
+await q('window.__heart.heartbeat.setPaused(true)');
+await page.waitForTimeout(1500);
+await frames(15);
+const labelSets = [];
+for (const phase of [0, 0.12, 0.25, 0.37, 0.5, 0.62, 0.75, 0.87]) {
+  await q(`window.__heart.heartbeat.setPhase(${phase})`);
+  await frames(15);
+  labelSets.push(await shownLabels());
+}
+check('labels do not blink with the heartbeat', labelSets[0].length > 0 && labelSets.every((s) => s === labelSets[0]), labelSets[0]);
+
+// Labels never capture the mouse: a click on one selects its structure, a
+// drag that starts on one rotates the heart, and no text gets selected.
+const labelTarget = () => q(`(() => { const e = [...document.querySelectorAll('.label.is-visible .label__text')].find((t) => { const r = t.getBoundingClientRect(); return r.left > 40 && r.right < innerWidth - 40 && r.top > 40 && r.bottom < innerHeight - 40; }); if (!e) return null; const r = e.getBoundingClientRect(); return { name: e.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+const clickTarget = await labelTarget();
+if (clickTarget) {
+  await page.mouse.click(clickTarget.x, clickTarget.y);
+  await until('!document.getElementById("info").hidden', 30000);
+  const picked = await q('document.getElementById("info-name").textContent');
+  check('click on a label selects its structure', picked.startsWith(clickTarget.name.replace(/\s*\(.*\)$/, '')), `${clickTarget.name} -> ${picked}`);
+  await page.click('#info-close');
+  await page.mouse.move(5, box.height - 5);
+  await frames(15);
+} else {
+  check('click on a label selects its structure', false, 'no label on screen');
+}
+const dragTarget = await labelTarget();
+const beforeDrag = await q('window.__heart.camera.position.toArray()');
+if (dragTarget) {
+  await page.mouse.move(dragTarget.x, dragTarget.y);
+  await page.mouse.down();
+  await page.mouse.move(dragTarget.x - 200, dragTarget.y + 20, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(1200);
+}
+const dragAngle = await q(`(() => { const T = window.__heart.camera.position.constructor; const t = window.__heart.controls.target; const a = new T(...${JSON.stringify(beforeDrag)}).sub(t).normalize(); const b = window.__heart.camera.position.clone().sub(t).normalize(); return Math.acos(Math.min(1, a.dot(b))) * 180 / Math.PI; })()`);
+check('drag starting on a label rotates the camera', Boolean(dragTarget) && dragAngle > 5, `${dragTarget?.name ?? 'no label'}: ${dragAngle.toFixed(1)}°`);
+check('no text is selected while dragging', (await q('String(getSelection())')) === '');
+await q('window.__heart.heartbeat.setPaused(false)');
+await view(40);
+
 // --- Audio -----------------------------------------------------------------------------
 await page.click('input[data-setting="sound"]');
 await until('window.__heart.sound.scheduledCount > 1', 180000);

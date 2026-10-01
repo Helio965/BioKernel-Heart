@@ -31,6 +31,7 @@ import { STRUCTURES } from '../../js/anatomy.js';
 import { createCardiacField } from '../../js/cardiacField.js';
 import { ensureArchive, loadPieces, orientOutwards } from './lib/source.mjs';
 import { fuseJunction } from './lib/junctions.mjs';
+import { valueNoise3, lobules } from './lib/noise.mjs';
 import {
   createMesh,
   vertexCount,
@@ -589,10 +590,23 @@ for (const [key, structure] of Object.entries(STRUCTURES)) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Epicardial fat (around the coronary vessels and in the AV groove)
+// 5. Epicardial fat
+//
+// Where it is (Ndrepepa 2020, Indian J Med Res, PMC7602928): mainly in the
+// atrioventricular and interventricular grooves and along the major coronary
+// branches (10-14 mm thick there), over the right-ventricular free wall
+// (5-7 mm), less over the atria and the LV apex; it carries the coronary
+// vessels. Here a 0..1 amount per wall vertex; the epicardium shell turns it
+// into volume (scaled down so the coronary vessels stay visible, and the
+// zoom reveal thins it further).
 // ---------------------------------------------------------------------------
 const vesselKeys = Object.keys(STRUCTURES).filter((k) => ['artery', 'vein'].includes(STRUCTURES[k].material));
-const coronaryBVH = buildBVH(mergeMeshes(vesselKeys.flatMap((k) => structures.get(k).map((p) => stripAttributes(p.mesh)))));
+// The main trunks run in the grooves inside a bed of fat; the small branches
+// on the ventricular surface carry only a thin rim of it.
+const MAIN_VESSELS = new Set(['lmca', 'lad', 'lcx', 'rca', 'pda', 'coronarySinus', 'greatCardiacVein', 'anteriorInterventricularVein', 'middleCardiacVein', 'smallCardiacVein']);
+const vesselBVH = (keys) => buildBVH(mergeMeshes(keys.flatMap((k) => structures.get(k).map((p) => stripAttributes(p.mesh)))));
+const mainBVH = vesselBVH(vesselKeys.filter((k) => MAIN_VESSELS.has(k)));
+const branchBVH = vesselBVH(vesselKeys.filter((k) => !MAIN_VESSELS.has(k)));
 function stripAttributes(mesh) {
   return createMesh(mesh.positions, mesh.indices);
 }
@@ -601,17 +615,28 @@ for (const key of SPLIT_KEYS) {
     const mesh = part.mesh;
     const n = vertexCount(mesh);
     const fat = new Float32Array(n);
+    const nearVessel = new Float32Array(n).fill(9);
     for (let i = 0; i < n; i++) {
       if (mesh.attributes.endo.array[i] > 0.5) continue;
       const p = v3.at(mesh.positions, i);
-      // Fat fills the sulci where the main vessels run (AV groove, anterior
-      // and posterior interventricular grooves), not the whole surface.
-      const d = coronaryBVH.distance(p, 1.5);
+      const dMain = mainBVH.distance(p, 1.5);
+      const dBranch = branchBVH.distance(p, 1.5);
+      nearVessel[i] = Math.min(dMain, dBranch);
       const h = field.height(p);
-      const groove = Math.exp(-(((h - 0.97) / 0.06) ** 2));
-      fat[i] = Math.min(1, (1 - smoothstep(0.04, 0.32, d)) * 0.85 * (0.45 + 0.55 * groove) + groove * 0.55);
+      // Atrioventricular groove (a band around the base of the ventricles).
+      const groove = Math.exp(-(((h - 0.97) / 0.07) ** 2));
+      // Fat carrying the coronary vessels: a wide bed around the main trunks
+      // (interventricular grooves), a narrow rim along the branches.
+      const halo = Math.max(1 - smoothstep(0.05, 0.38, dMain), 0.3 * (1 - smoothstep(0.02, 0.09, dBranch)));
+      let amount = Math.max(groove * 0.78, halo * (0.7 + 0.3 * groove));
+      // A thin veil over parts of the right-ventricular free wall and the atria.
+      const patch = smoothstep(0.3, 0.95, valueNoise3(v3.scale(p, 0.5), 7));
+      if (key === 'rvWall') amount += (1 - amount) * 0.22 * patch * patch;
+      else if (key === 'laWall' || key === 'raWall') amount += (1 - amount) * 0.18 * patch * groove;
+      fat[i] = Math.min(1, amount);
     }
     mesh.attributes.fat = { size: 1, array: fat };
+    mesh.attributes.nearVessel = { size: 1, array: nearVessel };
   }
 }
 log('epicardial fat computed');
@@ -680,6 +705,7 @@ if (!QUICK) {
 // ---------------------------------------------------------------------------
 // Epicardium shell (derived from the outer surface of the walls)
 // ---------------------------------------------------------------------------
+const FAT_THICKNESS = 0.16; // cm at full amount (real grooves: 1.0-1.4 cm)
 function buildEpicardium(partsByKey) {
   const shells = [];
   for (const key of SPLIT_KEYS) {
@@ -698,12 +724,21 @@ function buildEpicardium(partsByKey) {
       const P = shell.positions;
       const N = shell.attributes.normal.array;
       const fat = shell.attributes.fat?.array;
+      const nearVessel = shell.attributes.nearVessel?.array;
+      const ao = shell.attributes.ao?.array;
       for (let i = 0; i < vertexCount(shell); i++) {
-        const offset = 0.025 + (fat ? fat[i] : 0) * 0.07;
+        // Fat as volume: thicker where there is more of it, in rounded lobules.
+        const amount = fat ? fat[i] : 0;
+        const lobe = amount > 0.02 ? lobules(v3.at(P, i), 0.3, 3) : 1;
+        // The vessels lie in the fat: it rises around them, not over them.
+        const bed = nearVessel ? smoothstep(0.03, 0.22, nearVessel[i]) : 1;
+        const offset = 0.02 + amount * FAT_THICKNESS * (0.55 + 0.45 * lobe) * bed;
         P[i * 3] += N[i * 3] * offset;
         P[i * 3 + 1] += N[i * 3 + 1] * offset;
         P[i * 3 + 2] += N[i * 3 + 2] * offset;
+        if (ao) ao[i] *= 1 - 0.35 * amount * (1 - lobe); // shade the clefts between lobules
       }
+      shell.attributes.normal = { size: 3, array: computeNormals(shell) };
       shells.push({ key: 'epicardium', name: `epicardium_${key}${shells.length}`, mesh: shell });
     }
   }

@@ -86,6 +86,8 @@ async function start(renderer) {
   controls.target.copy(HOME_TARGET);
   controls.update();
   const cameraMotion = createCameraMotion(camera, controls);
+  // Grabbing the camera stops any reset/focus flight, so a drag always rotates.
+  controls.addEventListener('start', () => cameraMotion.cancel());
 
   const lighting = createLighting(renderer, scene, camera);
   const post = createComposer(renderer, scene, camera, quality);
@@ -168,7 +170,8 @@ async function start(renderer) {
     conduction,
     shared,
     picker,
-    onFocusPoint: (point, key) => cameraMotion.focus(point, key),
+    labelAt: (x, y) => labels.labelAt(x, y),
+    onFocusPoint: (point, key) => cameraMotion.focus(point ?? labels.anchorPoint(key, heartbeat.state), key),
     onHover(key) {
       heart.setHovered(key);
       conduction.setHovered(key);
@@ -200,7 +203,6 @@ async function start(renderer) {
     conduction,
     shared,
     picker,
-    onPick: (key) => select(key),
   });
 
   // --- Responsiveness -----------------------------------------------------------------
@@ -227,6 +229,7 @@ async function start(renderer) {
     maxPixelRatio = profile.maxPixelRatio;
     particleScale = 1;
     effects = {
+      ao: profile.ao,
       bloom: profile.bloom,
       microDetail: profile.microDetail,
       shadows: profile.shadows,
@@ -257,6 +260,9 @@ async function start(renderer) {
     onDowngrade(step, fps) {
       if (!quality.adaptive) return;
       switch (step) {
+        case 'ao':
+          effects.ao = false;
+          break;
         case 'bloom':
           effects.bloom = false;
           post.bloom.enabled = false;
@@ -320,7 +326,7 @@ async function start(renderer) {
   applyQuality(quality);
 
   // Debug / automated tests: read-only handle to the running app.
-  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, conduction, labels, sound, settings, layers, select, isolate, applyLayer, panel, cameraMotion, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
+  window.__heart = { scene, camera, controls, heart, heartbeat, reveal, bloodFlow, coronaryFlow, conduction, labels, sound, settings, layers, select, isolate, applyLayer, panel, cameraMotion, post, quality: () => quality, applyQuality: (c) => applyQuality(profileFor(c, gpu)) };
 
   // Compile every shader variant up-front (opaque and translucent), so the
   // first zoom does not stutter.
@@ -337,6 +343,7 @@ async function start(renderer) {
   const keyView = new THREE.Vector3();
   let translucentHold = 0;
   let assist = 0;
+  let aoWeight = 0;
 
   function frame() {
     requestAnimationFrame(frame);
@@ -379,6 +386,14 @@ async function start(renderer) {
     translucentHold = needsTranslucency ? 0.5 : translucentHold - delta;
     heart.setTranslucent(translucentHold > 0);
     lighting.setShadows(effects.shadows && view.progress < 1.8, quality.shadowMapSize);
+    // Screen-space AO only while everything is opaque (outside view): it is
+    // computed from the depth of the first surface, which is wrong behind a
+    // see-through wall.
+    const aoTarget = effects.ao && !heart.translucent && view.progress < 1.2 ? 1 : 0;
+    aoWeight += (aoTarget - aoWeight) * (1 - Math.exp(-delta / 0.25));
+    if (aoTarget === 0 && aoWeight < 0.02) aoWeight = 0;
+    post.ao.blendIntensity = aoWeight;
+    post.ao.enabled = aoWeight > 0;
 
     heart.update(delta, cycle, view.distance);
     bloodFlow.update(delta, cycle);
@@ -443,6 +458,10 @@ function createCameraMotion(camera, controls) {
     },
     get active() {
       return elapsed >= 0;
+    },
+    /** Stops a reset/focus flight (the user took the camera). */
+    cancel() {
+      elapsed = -1;
     },
     update(delta) {
       if (elapsed < 0) return;
