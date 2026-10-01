@@ -21,6 +21,7 @@ export const PROFILES = {
     msaa: 4,
     shadows: true,
     shadowMapSize: 2048,
+    ao: true, // screen-space ambient occlusion (contact shadows)
     bloom: true,
     detailModel: true,
     microDetail: 1,
@@ -36,6 +37,7 @@ export const PROFILES = {
     msaa: 4,
     shadows: true,
     shadowMapSize: 1024,
+    ao: true, // screen-space ambient occlusion (contact shadows)
     bloom: true,
     detailModel: true,
     microDetail: 0.85,
@@ -51,6 +53,7 @@ export const PROFILES = {
     msaa: 0,
     shadows: false,
     shadowMapSize: 1024,
+    ao: false, // screen-space ambient occlusion (contact shadows)
     bloom: true,
     detailModel: false,
     microDetail: 0.55,
@@ -66,6 +69,7 @@ export const PROFILES = {
     msaa: 0,
     shadows: false,
     shadowMapSize: 512,
+    ao: false, // screen-space ambient occlusion (contact shadows)
     bloom: false,
     detailModel: false,
     microDetail: 0,
@@ -107,6 +111,7 @@ function automaticProfile(gpu) {
  * (secondary effects first, geometry last — the anatomy itself never goes).
  */
 export const DOWNGRADE_STEPS = [
+  'ao', // screen-space ambient occlusion (an extra geometry pass)
   'bloom', // secondary effect
   'microDetail', // procedural surface detail (fragment noise)
   'materials', // secondary shading lobes (sheen, then clearcoat) and area light

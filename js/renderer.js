@@ -5,6 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 
 /**
  * WebGL 2 renderer. Like the Black-Hole project it asks for the dedicated
@@ -134,14 +135,29 @@ export function createLighting(renderer, scene, camera) {
 }
 
 /**
- * Post-processing: render (multisampled, half float) -> bloom -> output
- * (tone mapping + sRGB).
+ * Post-processing: render (multisampled, half float) -> ambient occlusion
+ * (GTAO: contact shadows where a vessel lies on the muscle, between fat
+ * lobules, in the grooves) -> bloom -> output (tone mapping + sRGB).
  */
 export function createComposer(renderer, scene, camera, profile) {
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: profile.msaa });
   const composer = new EffectComposer(renderer, target);
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
+  // Radii in scene units (cm): about a centimetre of contact shadow.
+  const ao = new GTAOPass(scene, camera, 1, 1, undefined, {
+    radius: 1.1,
+    distanceExponent: 1.1,
+    thickness: 1.5,
+    scale: 2,
+    samples: 16,
+    distanceFallOff: 1,
+    screenSpaceRadius: false,
+  });
+  ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+  ao.blendIntensity = 0;
+  ao.enabled = false;
+  composer.addPass(ao);
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.32, 0.45, 0.92);
   bloom.enabled = profile.bloom;
   composer.addPass(bloom);
@@ -149,6 +165,7 @@ export function createComposer(renderer, scene, camera, profile) {
   return {
     composer,
     bloom,
+    ao,
     setMsaa(samples) {
       if (target.samples === samples) return;
       target.samples = samples;
